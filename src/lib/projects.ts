@@ -81,19 +81,21 @@ export interface ProjectFilters {
   staleOnly: boolean
 }
 
+/** 初期表示は「今、動いている案件」（運用中・制作・開発中・企画・準備中） */
 export const DEFAULT_FILTERS: ProjectFilters = {
   query: '',
   category: 'all',
-  status: 'all',
+  status: 'active',
   staleOnly: false,
 }
 
+/** 初期表示から条件が変わっているか */
 export function hasActiveFilters(filters: ProjectFilters): boolean {
   return (
     filters.query.trim() !== '' ||
-    filters.category !== 'all' ||
-    filters.status !== 'all' ||
-    filters.staleOnly
+    filters.category !== DEFAULT_FILTERS.category ||
+    filters.status !== DEFAULT_FILTERS.status ||
+    filters.staleOnly !== DEFAULT_FILTERS.staleOnly
   )
 }
 

@@ -10,19 +10,20 @@
 - どの ChatGPT チャットに戻ればいいか（ChatGPTを開く）
 
 を一目で確認できます。データは既存の Google スプレッドシート「ChatGPT_総合プロジェクト管理」の
-**「総合管理」シートを読み取り専用で**参照します（Phase 1）。
+**「総合管理」シートを読み取りだけで**参照します（Phase 1。書き込み処理は実装していません）。
 
 ## 主な機能
 
 | 機能 | 内容 |
 | --- | --- |
-| 集計カード | 全案件／進行中（運用中＋制作・開発中＋企画・準備中）／運用中／制作・開発中／企画・準備中／保留／完了。タップで状態を絞り込み |
-| 今、動いている案件 | 運用中・制作・開発中・企画・準備中の案件をカード表示。「次にやること」を強調 |
-| ChatGPT への導線 | G列（メインチャットURL）があれば「ChatGPTを開く」、F列（プロジェクトURL）があれば「プロジェクトを開く」（新しいタブ） |
+| 集計バー | 主表示: 進行中（運用中＋制作・開発中＋企画・準備中）・要確認・全案件。補助表示: 運用中／制作中／企画中／保留／完了。すべてクリックで絞り込み |
+| 今、動いている案件 | 初期表示。運用中→制作・開発中→企画・準備中の順、同じ状態内は最終更新日の新しい順。保留・完了は状態フィルターや「全案件」で表示 |
+| 一覧（判断する場所） | 案件名・NEXT（次にやること）・状態・大分類・更新日・操作だけに絞る。PC は 1 列のコンパクトなリスト、スマホはコンパクトなカード |
+| 続きから始める | G列（メインチャットURL）を新しいタブで開く Primary Action。F列（プロジェクトURL）は「↗ プロジェクト」として Secondary。URL がなければ小さなテキストのみ |
 | 検索 | 大分類・案件名・現在地・次にやること・検索キーワード・メモを横断検索。全角/半角・カタカナ/ひらがなの違いを吸収、スペース区切りで AND 検索 |
-| フィルター | 大分類（シートの値から自動生成）・状態・要確認のみ |
-| 要確認 | 最終更新日から 30 日以上経過し、保留・完了以外の案件にバッジ表示＋件数バナー |
-| 詳細 | PC は右サイドパネル、スマホはボトムシート。検索キーワードのコピー、メモ内 URL のリンク化 |
+| フィルター | 大分類（シートの値から自動生成）・状態。要確認は集計バーから |
+| 要確認 | 最終更新日から 30 日以上経過し、保留・完了以外の案件。一覧では日付横の小さなチップ（例:「32日更新なし」） |
+| 詳細（情報を見る場所） | PC は右サイドパネル、スマホはボトムシート。全項目を表示、検索キーワードのコピー、メモ内 URL のリンク化 |
 | 状態表示 | ローディング（スケルトン）・取得エラー（再読み込み）・0件・検索結果なし |
 
 ## 技術構成
@@ -37,12 +38,14 @@
 ```
 ┌──────────────┐  POST {action:"list", key}   ┌─────────────────────┐  getValues()  ┌──────────────┐
 │ Web アプリ     │ ───────────────────────────▶ │ Apps Script Web アプリ │ ────────────▶ │ 総合管理 シート │
-│ (GitHub Pages)│ ◀─────────────────────────── │ (読み取り専用権限)      │               │ (A〜J 列)     │
+│ (GitHub Pages)│ ◀─────────────────────────── │ (書き込み処理なし)      │               │ (A〜J 列)     │
 └──────────────┘          JSON                 └─────────────────────┘               └──────────────┘
 ```
 
-- Google の認証情報はフロントエンドに一切含めません。Apps Script は「自分として実行」され、権限は
-  `spreadsheets.readonly`（読み取りのみ）に限定しています。
+- Google の認証情報はフロントエンドに一切含めません。Apps Script は「自分として実行」されます。
+- Apps Script の OAuth 権限は `https://www.googleapis.com/auth/spreadsheets`（読み書き可）です。
+  `spreadsheets.readonly` では `SpreadsheetApp.openById()` が権限エラーになったため変更しています。
+  **書き込みが行われないのは権限ではなく、`Code.gs` に書き込み処理を実装していないため**です。
 - 任意で「閲覧キー（ACCESS_KEY）」を設定できます。キーは Apps Script のスクリプト プロパティにだけ保存され、
   ビルド成果物には含まれません。利用者は初回に端末ごとに入力します（localStorage に保存）。
 
@@ -52,7 +55,7 @@
 project-control-center/
 ├─ gas/
 │  ├─ Code.gs              # Apps Script（読み取り API）
-│  └─ appsscript.json      # マニフェスト（readonly 権限・Web アプリ設定）
+│  └─ appsscript.json      # マニフェスト（OAuth 権限・Web アプリ設定）
 ├─ src/
 │  ├─ types/project.ts     # Project 型など
 │  ├─ lib/
@@ -69,6 +72,13 @@ project-control-center/
 │  │  └─ index.ts          # 接続先の選択
 │  ├─ hooks/useProjects.ts # 取得状態の管理（loading / error / ready）
 │  ├─ components/          # UI コンポーネント
+│  │  ├─ Dashboard.tsx     # 画面構成（集計 →［今日やる］→ 検索 → 一覧）
+│  │  ├─ OverviewBar.tsx   # 集計バー
+│  │  ├─ FilterBar.tsx     # 検索・大分類・状態
+│  │  ├─ ProjectList.tsx   # 一覧（別の切り口の一覧でも再利用可）
+│  │  ├─ ProjectItem.tsx   # 一覧の 1 件（PC: 行 / スマホ: カード）
+│  │  ├─ ProjectActions.tsx # 続きから始める・プロジェクト
+│  │  └─ ProjectDetail.tsx # 詳細パネル／ボトムシート
 │  ├─ App.tsx
 │  └─ main.tsx
 ├─ .github/workflows/deploy.yml  # GitHub Pages 自動デプロイ
@@ -113,7 +123,7 @@ http://localhost:5173 を開きます。`VITE_SHEETS_API_URL` が未設定の場
 ## Google Sheets 接続方法（Apps Script）
 
 対象: スプレッドシート「ChatGPT_総合プロジェクト管理」（ID `1fKBxorXoArfhbvyq3K51-gi6A_nYJke2-rtz0GXrrJI`）の「総合管理」シート。
-**シートの列・データは一切変更しません。** Apps Script は読み取り専用権限で動作します。
+**シートの列・データは一切変更しません。** Apps Script には読み取り処理だけを実装しています。
 
 1. スプレッドシートを開き、メニュー **拡張機能 → Apps Script** を開く
 2. 左上のプロジェクト名「無題のプロジェクト」をクリックし、`PROJECT CONTROL CENTER API` に変更
@@ -125,7 +135,7 @@ http://localhost:5173 を開きます。`VITE_SHEETS_API_URL` が未設定の場
 7. 上部の関数選択で `testListProjects` を選び **実行**
    - 「承認が必要です」→ **権限を確認** → 自分の Google アカウントを選択
    - 「このアプリは Google で確認されていません」→ **詳細** → **PROJECT CONTROL CENTER API（安全ではないページ）に移動**
-   - 権限が「スプレッドシートの**表示**」のみであることを確認して **許可**
+   - 表示された権限を確認して **許可**（権限は spreadsheets。書き込み処理は実装していません）
    - 下の実行ログに「取得件数: 22」のように表示されれば OK
 8. 右上の **デプロイ → 新しいデプロイ** → 種類の歯車で **ウェブアプリ** を選択
    - 説明: `v1 read-only`
@@ -169,10 +179,11 @@ iPhone では Safari で開き、共有ボタン →「ホーム画面に追加�
 2. **データ層**: `ProjectRepository` に `updateProject(rowNumber, fields, expectedUpdatedAt)` を追加し、
    `gasRepository.ts` で `{ action: 'update', key, rowNumber, fields, expectedUpdatedAt }` を POST する
 3. **Apps Script**:
-   - `appsscript.json` の権限を `https://www.googleapis.com/auth/spreadsheets` に変更（再承認が必要）
    - `doPost` の `case 'update'` に `updateProject_` を実装
    - 書き込み前に「行番号の案件名が一致するか」「最終更新日が取得時から変わっていないか」を確認（楽観ロック、別端末での同時編集を検知）
    - `LockService` で排他制御、書き込むのは C・D・E・J 列と I 列（最終更新日を当日に更新）のみ
    - 更新は **ACCESS_KEY 必須**（未設定時は更新を拒否）にする
 4. **UI**: `ProjectDetail` に編集モード（状態はセレクト、他はテキストエリア）を追加し、保存後に `reload()`
+   - 「今日やる」: `Dashboard.tsx` のコメント位置に `<Section title="今日やる"><ProjectList … /></Section>` を追加する。
+     選択の保存先（シートの列追加 or 端末ごとの保存）を決めてから実装する
 5. **検証**: まずスプレッドシートのコピーで Apps Script を動かして確認してから本番に切り替える

@@ -1,9 +1,10 @@
 /**
- * PROJECT CONTROL CENTER — Google Sheets 読み取り API（Phase 1: 読み取り専用）
+ * PROJECT CONTROL CENTER — Google Sheets 読み取り API（Phase 1）
  *
- * - 「総合管理」シートの A〜J 列を JSON で返すだけで、シートへの書き込みは一切行わない。
- * - appsscript.json で権限を spreadsheets.readonly に限定しているため、
- *   このスクリプトからはスプレッドシートを変更できない。
+ * - 「総合管理」シートの A〜J 列を JSON で返すだけで、書き込み処理は実装していない。
+ * - 注意: appsscript.json の権限は spreadsheets（読み書き可）。
+ *   （spreadsheets.readonly では SpreadsheetApp.openById() が権限エラーになったため）
+ *   書き込みが起きないのは、このコードに書き込み処理がないことによる。
  * - スクリプト プロパティ ACCESS_KEY を設定すると、閲覧キーを知っている人だけが読み取れる。
  */
 

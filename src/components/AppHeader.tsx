@@ -11,44 +11,52 @@ interface AppHeaderProps {
   onForgetKey?: () => void
 }
 
+const iconButton =
+  'grid size-10 place-items-center rounded-lg text-navy-100 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-white disabled:opacity-40'
+
 export function AppHeader({ sourceLabel, fetchedAt, isRefreshing, canReload, onReload, onForgetKey }: AppHeaderProps) {
+  const isSheets = sourceLabel === 'Google Sheets'
   return (
     <header className="bg-navy-900 text-white">
-      <div className="mx-auto flex max-w-7xl items-start justify-between gap-4 px-4 pt-[max(1.25rem,env(safe-area-inset-top))] pb-5 sm:px-6 sm:py-7 lg:px-8">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 pt-[max(0.875rem,env(safe-area-inset-top))] pb-3.5 sm:px-6 sm:py-4 lg:px-8">
         <div className="min-w-0">
-          <h1 className="text-[17px] leading-tight font-bold tracking-[0.06em] whitespace-nowrap min-[400px]:tracking-[0.1em] sm:text-2xl sm:tracking-[0.14em]">PROJECT CONTROL CENTER</h1>
-          <p className="mt-1 text-[13px] text-navy-200 sm:text-sm">次にやることが、すぐ分かる。</p>
+          <h1 className="text-[17px] leading-tight font-bold tracking-[0.06em] whitespace-nowrap min-[400px]:tracking-[0.1em] sm:text-xl sm:tracking-[0.14em]">
+            PROJECT CONTROL CENTER
+          </h1>
+          <p className="mt-0.5 text-xs text-navy-200 sm:text-[13px]">次にやることが、すぐ分かる。</p>
         </div>
-        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <div className="hidden text-right text-xs leading-relaxed text-navy-200 sm:block">
-            <p>
-              データ: <span className="font-medium text-white">{sourceLabel}</span>
-            </p>
-            {fetchedAt && <p>{formatTime(fetchedAt)} 取得</p>}
-          </div>
+        <div className="flex shrink-0 items-center gap-0.5">
+          {!isSheets && (
+            <span className="mr-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-navy-100">{sourceLabel}</span>
+          )}
+          {fetchedAt && (
+            <span className="mr-1 hidden text-xs text-navy-200 tabular-nums sm:inline" title={`${sourceLabel} から取得`}>
+              {formatTime(fetchedAt)} 更新
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={onReload}
+            disabled={!canReload || isRefreshing}
+            className={iconButton}
+            aria-label="最新のデータを再読み込み"
+            title="再読み込み"
+          >
+            <RefreshCw className={`size-[18px] ${isRefreshing ? 'animate-spin' : ''}`} aria-hidden />
+          </button>
           {onForgetKey && (
             <button
               type="button"
               onClick={() => {
                 if (window.confirm('この端末から閲覧キーを削除しますか？（次回は再入力が必要です）')) onForgetKey()
               }}
-              className="grid size-10 place-items-center rounded-lg border border-white/20 bg-white/10 transition hover:bg-white/20"
+              className={iconButton}
               aria-label="この端末から閲覧キーを削除"
-              title="この端末から閲覧キーを削除"
+              title="閲覧キーの管理（この端末から削除）"
             >
-              <KeyRound className="size-4" aria-hidden />
+              <KeyRound className="size-[18px]" aria-hidden />
             </button>
           )}
-          <button
-            type="button"
-            onClick={onReload}
-            disabled={!canReload || isRefreshing}
-            className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-white/20 bg-white/10 px-3 text-sm font-medium transition hover:bg-white/20 disabled:opacity-50"
-            aria-label="データを再読み込み"
-          >
-            <RefreshCw className={`size-4 ${isRefreshing ? 'animate-spin' : ''}`} aria-hidden />
-            <span className="hidden sm:inline">再読み込み</span>
-          </button>
         </div>
       </div>
     </header>

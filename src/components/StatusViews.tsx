@@ -18,20 +18,21 @@ const primaryButton =
 
 export function LoadingState() {
   return (
-    <div role="status" aria-live="polite" className="space-y-6">
+    <div role="status" aria-live="polite" className="space-y-4 sm:space-y-5">
       <span className="sr-only">プロジェクトデータを読み込み中…</span>
-      <div className="flex gap-2 overflow-hidden sm:grid sm:grid-cols-4 lg:grid-cols-7">
-        {Array.from({ length: 7 }, (_, i) => (
-          <div key={i} className="h-[76px] w-[6.75rem] shrink-0 animate-pulse rounded-xl bg-slate-200/70 sm:w-auto" />
-        ))}
-      </div>
-      <div className="h-24 animate-pulse rounded-2xl bg-slate-200/70" />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {Array.from({ length: 3 }, (_, i) => (
-          <div key={i} className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5">
-            <div className="h-3 w-24 animate-pulse rounded bg-slate-200" />
-            <div className="h-5 w-2/3 animate-pulse rounded bg-slate-200" />
-            <div className="h-20 animate-pulse rounded-xl bg-slate-100" />
+      <div className="h-[118px] animate-pulse rounded-2xl bg-slate-200/70 sm:h-[76px]" />
+      <div className="h-11 animate-pulse rounded-lg bg-slate-200/70 lg:h-10" />
+      <div className="space-y-2.5 lg:space-y-0 lg:divide-y lg:divide-slate-100 lg:rounded-2xl lg:border lg:border-slate-200 lg:bg-white">
+        {Array.from({ length: 4 }, (_, i) => (
+          <div
+            key={i}
+            className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 lg:grid-cols-[15rem_1fr_12.5rem] lg:items-center lg:gap-6 lg:rounded-none lg:border-0 lg:px-5"
+          >
+            <div className="space-y-2">
+              <div className="h-3 w-20 animate-pulse rounded bg-slate-200" />
+              <div className="h-4 w-40 animate-pulse rounded bg-slate-200" />
+            </div>
+            <div className="h-10 animate-pulse rounded bg-slate-100" />
             <div className="h-10 animate-pulse rounded-lg bg-slate-100" />
           </div>
         ))}

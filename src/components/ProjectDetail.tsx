@@ -1,9 +1,9 @@
-import { ArrowRight, Check, Copy, ExternalLink, X } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Check, Copy, ExternalLink, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { formatDate, formatRelative } from '../lib/date'
 import type { Project } from '../types/project'
 import { LinkifiedText } from './LinkifiedText'
-import { ProjectLinks } from './ProjectLinks'
+import { ResumeButton } from './ProjectActions'
 import { StaleBadge } from './StaleBadge'
 import { StatusBadge } from './StatusBadge'
 
@@ -137,6 +137,7 @@ export function ProjectDetail({ project, stale, onClose }: ProjectDetailProps) {
           <dl className="mt-1 divide-y divide-slate-100">
             <Field label="現在地">{project.currentState ? <LinkifiedText text={project.currentState} /> : <Empty />}</Field>
             <Field label="状態">{project.statusLabel || <Empty />}</Field>
+            <Field label="大分類">{project.category || <Empty />}</Field>
             <Field label="最終更新日">
               {project.updatedAt ? (
                 <>
@@ -167,9 +168,25 @@ export function ProjectDetail({ project, stale, onClose }: ProjectDetailProps) {
           </dl>
         </div>
 
-        <footer className="shrink-0 border-t border-slate-100 bg-white px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6 md:pb-5">
-          <ProjectLinks project={project} size="lg" />
-        </footer>
+        {(project.chatUrl || project.projectUrl) && (
+          <footer className="flex shrink-0 gap-2 border-t border-slate-100 bg-white px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6 md:pb-5">
+            {project.chatUrl && <ResumeButton project={project} size="lg" className="flex-1" />}
+            {project.projectUrl && (
+              <a
+                href={project.projectUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`${project.name} のプロジェクトを新しいタブで開く`}
+                className={`inline-flex h-12 items-center justify-center gap-1 rounded-lg border border-slate-300 bg-white px-4 text-[15px] font-semibold whitespace-nowrap text-navy-800 hover:border-navy-300 hover:bg-navy-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy-500 ${
+                  project.chatUrl ? '' : 'flex-1'
+                }`}
+              >
+                <ArrowUpRight className="size-4 shrink-0" aria-hidden />
+                プロジェクトを開く
+              </a>
+            )}
+          </footer>
+        )}
       </section>
     </div>
   )

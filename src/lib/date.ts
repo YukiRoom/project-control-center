@@ -44,3 +44,11 @@ export function formatRelative(value: string, today: Date = new Date()): string 
 export function formatTime(date: Date): string {
   return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
 }
+
+/** 一覧用の短い表示: 9/25（今年以外は 2025/9/25） */
+export function formatShortDate(value: string, today: Date = new Date()): string {
+  const date = parseDate(value)
+  if (!date) return '—'
+  const md = `${date.getMonth() + 1}/${date.getDate()}`
+  return date.getFullYear() === today.getFullYear() ? md : `${date.getFullYear()}/${md}`
+}

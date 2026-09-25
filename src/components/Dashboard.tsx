@@ -1,4 +1,4 @@
-import { ChevronDown } from 'lucide-react'
+import { AlertTriangle, X } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import {
   DEFAULT_FILTERS,
@@ -9,32 +9,36 @@ import {
   sortProjects,
   summarize,
   type ProjectFilters,
+  type StatusFilter,
 } from '../lib/projects'
-import { isActiveStatus } from '../lib/status'
+import { INACTIVE_STATUSES, getStatusDefinition } from '../lib/status'
 import type { Project } from '../types/project'
 import { FilterBar } from './FilterBar'
-import { ProjectCard } from './ProjectCard'
+import { OverviewBar } from './OverviewBar'
 import { ProjectDetail } from './ProjectDetail'
-import { ProjectListItem } from './ProjectListItem'
+import { ProjectList } from './ProjectList'
 import { Section } from './Section'
-import { StaleBanner } from './StaleBanner'
 import { NoResults } from './StatusViews'
-import { SummaryCards } from './SummaryCards'
 
+function listTitle(status: StatusFilter): string {
+  if (status === 'active') return '今、動いている案件'
+  if (status === 'all') return 'すべての案件'
+  return `${getStatusDefinition(status).shortLabel}の案件`
+}
+
+/**
+ * ダッシュボード。上から「集計 → （今日やる）→ 検索 → 一覧」の順に並べる。
+ * 一覧 = 判断する場所、詳細パネル = 情報を見る場所。
+ */
 export function Dashboard({ projects }: { projects: Project[] }) {
   const [filters, setFilters] = useState<ProjectFilters>(DEFAULT_FILTERS)
   const [selectedRow, setSelectedRow] = useState<number | null>(null)
-  const [showInactive, setShowInactive] = useState(false)
   const today = useMemo(() => new Date(), [])
 
   const summary = useMemo(() => summarize(projects, today), [projects, today])
   const categories = useMemo(() => getCategories(projects), [projects])
-  const filtered = useMemo(() => sortProjects(filterProjects(projects, filters, today)), [projects, filters, today])
-  const activeProjects = filtered.filter((p) => isActiveStatus(p.status))
-  const otherProjects = filtered.filter((p) => !isActiveStatus(p.status))
-
+  const visible = useMemo(() => sortProjects(filterProjects(projects, filters, today)), [projects, filters, today])
   const isFiltered = hasActiveFilters(filters)
-  const inactiveOpen = showInactive || isFiltered
   const selected = projects.find((p) => p.rowNumber === selectedRow) ?? null
 
   const updateFilters = useCallback((patch: Partial<ProjectFilters>) => setFilters((prev) => ({ ...prev, ...patch })), [])
@@ -42,73 +46,67 @@ export function Dashboard({ projects }: { projects: Project[] }) {
   const openProject = useCallback((project: Project) => setSelectedRow(project.rowNumber), [])
   const closeProject = useCallback(() => setSelectedRow(null), [])
 
+  const selectStatus = useCallback(
+    (status: StatusFilter) => setFilters((prev) => ({ ...prev, status, staleOnly: false })),
+    [],
+  )
+  // 要確認は保留・完了を含まないため、それらで絞り込み中なら進行中に戻す
+  const toggleStale = useCallback(
+    () =>
+      setFilters((prev) => ({
+        ...prev,
+        staleOnly: !prev.staleOnly,
+        status: !prev.staleOnly && INACTIVE_STATUSES.some((s) => s === prev.status) ? 'active' : prev.status,
+      })),
+    [],
+  )
+
   return (
-    <div className="space-y-5 sm:space-y-6">
-      <SummaryCards summary={summary} selected={filters.status} onSelect={(status) => updateFilters({ status })} />
+    <div className="space-y-4 sm:space-y-5">
+      <OverviewBar summary={summary} filters={filters} onSelectStatus={selectStatus} onToggleStale={toggleStale} />
 
-      <StaleBanner
-        count={summary.stale}
-        active={filters.staleOnly}
-        onToggle={() => updateFilters({ staleOnly: !filters.staleOnly })}
-      />
+      {/*
+        「今日やる」セクションの差し込み位置（Phase 2 以降）。
+        今日やる案件の配列を用意し、<Section title="今日やる"><ProjectList … /></Section> をここに置く。
+      */}
 
-      <FilterBar
-        filters={filters}
-        categories={categories}
-        resultCount={filtered.length}
-        totalCount={projects.length}
-        isFiltered={isFiltered}
-        onChange={updateFilters}
-        onClear={clearFilters}
-      />
+      <FilterBar filters={filters} categories={categories} onChange={updateFilters} />
 
-      {filtered.length === 0 ? (
+      {visible.length === 0 ? (
         <NoResults onClear={clearFilters} />
       ) : (
-        <>
-          {activeProjects.length > 0 && (
-            <Section title="今、動いている案件" count={activeProjects.length} description="運用中・制作・開発中・企画・準備中">
-              <div className="grid gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {activeProjects.map((project) => (
-                  <ProjectCard
-                    key={project.rowNumber}
-                    project={project}
-                    stale={isStale(project, today)}
-                    onOpen={openProject}
-                  />
-                ))}
-              </div>
-            </Section>
-          )}
-
-          {otherProjects.length > 0 && (
-            <Section
-              title="保留・完了"
-              count={otherProjects.length}
-              action={
-                !isFiltered && (
-                  <button
-                    type="button"
-                    onClick={() => setShowInactive((open) => !open)}
-                    aria-expanded={inactiveOpen}
-                    className="inline-flex h-9 items-center gap-1 rounded-lg px-2.5 text-sm font-medium text-slate-600 hover:bg-slate-200/60"
-                  >
-                    {inactiveOpen ? '閉じる' : '表示する'}
-                    <ChevronDown className={`size-4 transition ${inactiveOpen ? 'rotate-180' : ''}`} aria-hidden />
-                  </button>
-                )
-              }
-            >
-              {inactiveOpen && (
-                <ul className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white py-1">
-                  {otherProjects.map((project) => (
-                    <ProjectListItem key={project.rowNumber} project={project} onOpen={openProject} />
-                  ))}
-                </ul>
+        <Section
+          title={listTitle(filters.status)}
+          count={visible.length}
+          action={
+            <>
+              {filters.staleOnly && (
+                <button
+                  type="button"
+                  onClick={toggleStale}
+                  className="inline-flex h-8 items-center gap-1 rounded-full bg-orange-50 px-2.5 text-xs font-semibold text-orange-800 hover:bg-orange-100 focus-visible:outline-2 focus-visible:outline-orange-600"
+                  aria-label="要確認のみの絞り込みを解除"
+                >
+                  <AlertTriangle className="size-3.5" aria-hidden />
+                  要確認のみ
+                  <X className="size-3.5" aria-hidden />
+                </button>
               )}
-            </Section>
-          )}
-        </>
+              {isFiltered && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-sm font-medium text-navy-700 hover:bg-navy-50 focus-visible:outline-2 focus-visible:outline-navy-500"
+                >
+                  <X className="size-3.5" aria-hidden />
+                  条件をクリア
+                </button>
+              )}
+            </>
+          }
+        >
+          <ProjectList projects={visible} today={today} onOpen={openProject} />
+        </Section>
       )}
 
       {selected && <ProjectDetail project={selected} stale={isStale(selected, today)} onClose={closeProject} />}
