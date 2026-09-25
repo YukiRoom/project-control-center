@@ -1,11 +1,12 @@
 import { AppHeader } from './components/AppHeader'
 import { Dashboard } from './components/Dashboard'
+import { Notices } from './components/Notices'
 import { EmptyState, ErrorState, LoadingState } from './components/StatusViews'
 import { loadAccessKey, saveAccessKey } from './data/accessKey'
 import { useProjects } from './hooks/useProjects'
 
 export default function App() {
-  const { state, isRefreshing, sourceLabel, reload } = useProjects()
+  const { state, isRefreshing, isSaving, notices, notify, dismissNotice, mutate, sourceLabel, reload } = useProjects()
 
   return (
     <div className="min-h-dvh">
@@ -13,6 +14,7 @@ export default function App() {
         sourceLabel={sourceLabel}
         fetchedAt={state.phase === 'ready' ? state.fetchedAt : undefined}
         isRefreshing={isRefreshing || state.phase === 'loading'}
+        isSaving={isSaving}
         canReload={state.phase !== 'error' || state.error.code !== 'NOT_CONFIGURED'}
         onReload={reload}
         onForgetKey={
@@ -28,8 +30,13 @@ export default function App() {
         {state.phase === 'loading' && <LoadingState />}
         {state.phase === 'error' && <ErrorState error={state.error} onRetry={reload} />}
         {state.phase === 'ready' &&
-          (state.projects.length === 0 ? <EmptyState onRetry={reload} /> : <Dashboard projects={state.projects} />)}
+          (state.dataset.projects.length === 0 ? (
+            <EmptyState onRetry={reload} />
+          ) : (
+            <Dashboard dataset={state.dataset} mutate={mutate} notify={notify} />
+          ))}
       </main>
+      <Notices notices={notices} onDismiss={dismissNotice} />
     </div>
   )
 }

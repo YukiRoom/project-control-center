@@ -12,8 +12,12 @@ import {
   type StatusFilter,
 } from '../lib/projects'
 import { INACTIVE_STATUSES, getStatusDefinition } from '../lib/status'
-import type { Project } from '../types/project'
+import { CommandsContext } from '../context/commands'
+import { useCommandsValue } from '../hooks/useCommandsValue'
+import type { Mutation, Project, ProjectDataset } from '../types/project'
+import { CategoryTabs } from './CategoryTabs'
 import { FilterBar } from './FilterBar'
+import { FocusSection } from './FocusSection'
 import { OverviewBar } from './OverviewBar'
 import { ProjectDetail } from './ProjectDetail'
 import { ProjectList } from './ProjectList'
@@ -26,11 +30,19 @@ function listTitle(status: StatusFilter): string {
   return `${getStatusDefinition(status).shortLabel}の案件`
 }
 
+interface DashboardProps {
+  dataset: ProjectDataset
+  mutate: (mutation: Mutation) => Promise<boolean>
+  notify: (kind: 'error' | 'info', message: string) => void
+}
+
 /**
- * ダッシュボード。上から「集計 → （今日やる）→ 検索 → 一覧」の順に並べる。
- * 一覧 = 判断する場所、詳細パネル = 情報を見る場所。
+ * ダッシュボード。上から「FOCUS → 集計 → カテゴリー → 検索 → 一覧」の順に並べる。
+ * 一覧 = 判断する場所、詳細パネル = 情報を見る・編集する場所。
  */
-export function Dashboard({ projects }: { projects: Project[] }) {
+export function Dashboard({ dataset, mutate, notify }: DashboardProps) {
+  const { projects } = dataset
+  const commands = useCommandsValue(dataset, mutate, notify)
   const [filters, setFilters] = useState<ProjectFilters>(DEFAULT_FILTERS)
   const [selectedRow, setSelectedRow] = useState<number | null>(null)
   const today = useMemo(() => new Date(), [])
@@ -40,6 +52,7 @@ export function Dashboard({ projects }: { projects: Project[] }) {
   const visible = useMemo(() => sortProjects(filterProjects(projects, filters, today)), [projects, filters, today])
   const isFiltered = hasActiveFilters(filters)
   const selected = projects.find((p) => p.rowNumber === selectedRow) ?? null
+  const focusProjects = useMemo(() => sortProjects(projects.filter((p) => p.focus)), [projects])
 
   const updateFilters = useCallback((patch: Partial<ProjectFilters>) => setFilters((prev) => ({ ...prev, ...patch })), [])
   const clearFilters = useCallback(() => setFilters(DEFAULT_FILTERS), [])
@@ -62,54 +75,69 @@ export function Dashboard({ projects }: { projects: Project[] }) {
   )
 
   return (
-    <div className="space-y-4 sm:space-y-5">
-      <OverviewBar summary={summary} filters={filters} onSelectStatus={selectStatus} onToggleStale={toggleStale} />
+    <CommandsContext.Provider value={commands}>
+      <div className="space-y-4 sm:space-y-5">
+        <FocusSection projects={focusProjects} onOpen={openProject} />
 
-      {/*
-        「今日やる」セクションの差し込み位置（Phase 2 以降）。
-        今日やる案件の配列を用意し、<Section title="今日やる"><ProjectList … /></Section> をここに置く。
-      */}
+        <OverviewBar summary={summary} filters={filters} onSelectStatus={selectStatus} onToggleStale={toggleStale} />
 
-      <FilterBar filters={filters} categories={categories} onChange={updateFilters} />
+        {dataset.orphanCount > 0 && (
+          <p className="rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">
+            「総合管理」と紐付かない管理データが {dataset.orphanCount} 件あります（案件名を変更した場合など）。README の「projectKey」を参照してください。
+          </p>
+        )}
 
-      {visible.length === 0 ? (
-        <NoResults onClear={clearFilters} />
-      ) : (
-        <Section
-          title={listTitle(filters.status)}
-          count={visible.length}
-          action={
-            <>
-              {filters.staleOnly && (
-                <button
-                  type="button"
-                  onClick={toggleStale}
-                  className="inline-flex h-8 items-center gap-1 rounded-full bg-orange-50 px-2.5 text-xs font-semibold text-orange-800 hover:bg-orange-100 focus-visible:outline-2 focus-visible:outline-orange-600"
-                  aria-label="要確認のみの絞り込みを解除"
-                >
-                  <AlertTriangle className="size-3.5" aria-hidden />
-                  要確認のみ
-                  <X className="size-3.5" aria-hidden />
-                </button>
-              )}
-              {isFiltered && (
-                <button
-                  type="button"
-                  onClick={clearFilters}
-                  className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-sm font-medium text-navy-700 hover:bg-navy-50 focus-visible:outline-2 focus-visible:outline-navy-500"
-                >
-                  <X className="size-3.5" aria-hidden />
-                  条件をクリア
-                </button>
-              )}
-            </>
-          }
-        >
-          <ProjectList projects={visible} today={today} onOpen={openProject} />
-        </Section>
-      )}
+        <div className="space-y-3">
+          {dataset.v3Ready && (
+            <CategoryTabs
+              categories={dataset.categories}
+              projects={projects}
+              selected={filters.topCategory}
+              onSelect={(topCategory) => updateFilters({ topCategory })}
+            />
+          )}
+          <FilterBar filters={filters} categories={categories} onChange={updateFilters} />
+        </div>
 
-      {selected && <ProjectDetail project={selected} stale={isStale(selected, today)} onClose={closeProject} />}
-    </div>
+        {visible.length === 0 ? (
+          <NoResults onClear={clearFilters} />
+        ) : (
+          <Section
+            title={listTitle(filters.status)}
+            count={visible.length}
+            action={
+              <>
+                {filters.staleOnly && (
+                  <button
+                    type="button"
+                    onClick={toggleStale}
+                    className="inline-flex h-8 items-center gap-1 rounded-full bg-orange-50 px-2.5 text-xs font-semibold text-orange-800 hover:bg-orange-100 focus-visible:outline-2 focus-visible:outline-orange-600"
+                    aria-label="要確認のみの絞り込みを解除"
+                  >
+                    <AlertTriangle className="size-3.5" aria-hidden />
+                    要確認のみ
+                    <X className="size-3.5" aria-hidden />
+                  </button>
+                )}
+                {isFiltered && (
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-sm font-medium text-navy-700 hover:bg-navy-50 focus-visible:outline-2 focus-visible:outline-navy-500"
+                  >
+                    <X className="size-3.5" aria-hidden />
+                    条件をクリア
+                  </button>
+                )}
+              </>
+            }
+          >
+            <ProjectList projects={visible} today={today} onOpen={openProject} />
+          </Section>
+        )}
+
+        {selected && <ProjectDetail project={selected} stale={isStale(selected, today)} onClose={closeProject} />}
+      </div>
+    </CommandsContext.Provider>
   )
 }

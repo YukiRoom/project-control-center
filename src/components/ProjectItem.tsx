@@ -1,7 +1,11 @@
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, CheckCircle2 } from 'lucide-react'
+import { useCommands } from '../context/commands'
 import { formatDate, formatShortDate } from '../lib/date'
+import { getProgress } from '../lib/progress'
 import { isActiveStatus } from '../lib/status'
 import type { Project } from '../types/project'
+import { CategoryBadge } from './CategoryBadge'
+import { FocusToggle } from './FocusToggle'
 import { ProjectLink, ResumeButton } from './ProjectActions'
 import { StaleBadge } from './StaleBadge'
 import { StatusBadge } from './StatusBadge'
@@ -19,7 +23,9 @@ interface ProjectItemProps {
  * - PC（lg〜）: 横長の行（左: 大分類・案件名・状態 / 中央: NEXT / 右: 操作・更新日）
  */
 export function ProjectItem({ project, stale, onOpen }: ProjectItemProps) {
+  const { v3Ready, categories } = useCommands()
   const muted = !isActiveStatus(project.status)
+  const progress = getProgress(project.tasks)
   return (
     <article
       onClick={() => onOpen(project)}
@@ -27,9 +33,12 @@ export function ProjectItem({ project, stale, onOpen }: ProjectItemProps) {
     >
       {/* 大分類・案件名・状態（スマホ: 大分類と状態が上 / PC: 案件名が上） */}
       <div className="flex min-w-0 flex-col gap-0.5 lg:gap-1">
-        <div className="flex items-center justify-between gap-2 lg:order-2 lg:justify-start">
-          <span className="truncate text-xs text-slate-500">{project.category || '大分類なし'}</span>
-          <StatusBadge project={project} />
+        <div className="flex items-center gap-2 lg:order-2">
+          {v3Ready && <CategoryBadge categoryKey={project.topCategory} categories={categories} />}
+          <span className="min-w-0 truncate text-xs text-slate-500">{project.category || '大分類なし'}</span>
+          <span className="ml-auto lg:ml-0">
+            <StatusBadge project={project} />
+          </span>
         </div>
         <h3 className="lg:order-1">
           <button
@@ -70,6 +79,12 @@ export function ProjectItem({ project, stale, onOpen }: ProjectItemProps) {
             更新 {formatShortDate(project.updatedAt)}
           </span>
           {stale && <StaleBadge updatedAt={project.updatedAt} />}
+          {progress.percent !== null && (
+            <span className="inline-flex items-center gap-0.5 whitespace-nowrap text-slate-600" title="完了タスク / 全タスク">
+              <CheckCircle2 className="size-3.5 text-emerald-600" aria-hidden />
+              {progress.done}/{progress.total}
+            </span>
+          )}
           <ProjectLink project={project} className="-ml-1.5 lg:hidden" />
         </div>
         {/* PC: Secondary（プロジェクト）を Primary（続きから始める）の左に並べる */}
@@ -77,6 +92,7 @@ export function ProjectItem({ project, stale, onOpen }: ProjectItemProps) {
           <span className="hidden lg:contents">
             <ProjectLink project={project} />
           </span>
+          <FocusToggle project={project} />
           <ResumeButton project={project} />
         </div>
       </div>

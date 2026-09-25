@@ -8,20 +8,25 @@ export type { DataErrorCode, ProjectRepository } from './repository'
 const apiUrl = (import.meta.env.VITE_SHEETS_API_URL ?? '').trim()
 
 function createNotConfiguredRepository(): ProjectRepository {
+  const error = () =>
+    new DataError(
+      'NOT_CONFIGURED',
+      '接続先（VITE_SHEETS_API_URL）が設定されていません。README の「Google Sheets 接続方法」を参照してください。',
+    )
   return {
     sourceLabel: '未接続',
-    async listProjects() {
-      throw new DataError(
-        'NOT_CONFIGURED',
-        '接続先（VITE_SHEETS_API_URL）が設定されていません。README の「Google Sheets 接続方法」を参照してください。',
-      )
+    async load() {
+      throw error()
+    },
+    async mutate() {
+      throw error()
     },
   }
 }
 
 /**
  * 接続先の決定:
- * - VITE_SHEETS_API_URL があれば Apps Script から読み取る
+ * - VITE_SHEETS_API_URL があれば Apps Script と通信する
  * - 未設定なら開発時はモック、本番ビルドでは「未接続」エラーを表示
  */
 export const projectRepository: ProjectRepository = apiUrl

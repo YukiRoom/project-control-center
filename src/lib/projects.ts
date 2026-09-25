@@ -1,4 +1,4 @@
-import type { Project, ProjectRow, ProjectStatus } from '../types/project'
+import type { Project, ProjectRow, ProjectStatus, Task } from '../types/project'
 import { STALE_THRESHOLD_DAYS, daysSince, parseDate } from './date'
 import { matchesQuery } from './search'
 import { INACTIVE_STATUSES, STATUS_DEFINITIONS, isActiveStatus, parseStatus } from './status'
@@ -15,12 +15,14 @@ export function toSafeUrl(value: string): string {
   }
 }
 
-export function toProject(row: ProjectRow): Project {
+export function toProject(row: ProjectRow, tasks: Task[] = []): Project {
   const text = (value: unknown) => (value == null ? '' : String(value).trim())
   const statusLabel = text(row.status)
   const updatedAt = text(row.updatedAt)
   return {
     rowNumber: row.rowNumber,
+    projectKey: text(row.projectKey),
+    keyConflict: row.keyConflict === true,
     category: text(row.category),
     name: text(row.name),
     statusLabel,
@@ -29,9 +31,14 @@ export function toProject(row: ProjectRow): Project {
     nextAction: text(row.nextAction),
     projectUrl: toSafeUrl(text(row.projectUrl)),
     chatUrl: toSafeUrl(text(row.chatUrl)),
+    chatUrlRaw: text(row.chatUrl),
     keywords: text(row.keywords),
     updatedAt: parseDate(updatedAt) ? updatedAt : '',
     memo: text(row.memo),
+    topCategory: text(row.topCategory),
+    focus: row.focus === true,
+    goal: text(row.goal),
+    tasks: [...tasks].sort((a, b) => a.sortOrder - b.sortOrder),
   }
 }
 
@@ -74,8 +81,12 @@ export function getCategories(projects: Project[]): string[] {
 
 export type StatusFilter = ProjectStatus | 'all' | 'active'
 
+/** V3 カテゴリーの絞り込み（'none' = 未分類） */
+export type TopCategoryFilter = string | 'all' | 'none'
+
 export interface ProjectFilters {
   query: string
+  topCategory: TopCategoryFilter
   category: string | 'all'
   status: StatusFilter
   staleOnly: boolean
@@ -84,6 +95,7 @@ export interface ProjectFilters {
 /** 初期表示は「今、動いている案件」（運用中・制作・開発中・企画・準備中） */
 export const DEFAULT_FILTERS: ProjectFilters = {
   query: '',
+  topCategory: 'all',
   category: 'all',
   status: 'active',
   staleOnly: false,
@@ -93,10 +105,17 @@ export const DEFAULT_FILTERS: ProjectFilters = {
 export function hasActiveFilters(filters: ProjectFilters): boolean {
   return (
     filters.query.trim() !== '' ||
+    filters.topCategory !== DEFAULT_FILTERS.topCategory ||
     filters.category !== DEFAULT_FILTERS.category ||
     filters.status !== DEFAULT_FILTERS.status ||
     filters.staleOnly !== DEFAULT_FILTERS.staleOnly
   )
+}
+
+export function matchesTopCategory(project: Project, filter: TopCategoryFilter): boolean {
+  if (filter === 'all') return true
+  if (filter === 'none') return project.topCategory === ''
+  return project.topCategory === filter
 }
 
 function matchesStatus(project: Project, status: StatusFilter): boolean {
@@ -112,6 +131,7 @@ export function filterProjects(
 ): Project[] {
   return projects.filter(
     (project) =>
+      matchesTopCategory(project, filters.topCategory) &&
       (filters.category === 'all' || project.category === filters.category) &&
       matchesStatus(project, filters.status) &&
       (!filters.staleOnly || isStale(project, today)) &&

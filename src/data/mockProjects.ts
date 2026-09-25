@@ -1,4 +1,4 @@
-import type { ProjectRow } from '../types/project'
+import type { ProjectRow, TaskRow } from '../types/project'
 
 function daysAgo(days: number): string {
   const date = new Date()
@@ -140,4 +140,21 @@ export const MOCK_PROJECT_ROWS: ProjectRow[] = [
     updatedAt: daysAgo(60),
     memo: '',
   },
+]
+
+/** 開発用の V3 管理データ（案件名 → カテゴリー・FOCUS・目標） */
+export const MOCK_META: Record<string, { topCategory?: string; focus?: boolean; goal?: string }> = {
+  'AI Knowledge Library': { topCategory: 'SYSTEM', focus: true, goal: 'スマホからも登録できる状態で実運用を始める' },
+  'note編集部｜記事制作・管理': { topCategory: 'CONTENT', focus: true, goal: '記事制作フローを実際の記事で回せる状態にする' },
+  'AI研修・教材': { topCategory: 'BUSINESS' },
+  '3Dライブアバター': { topCategory: 'CREATIVE' },
+}
+
+/** 開発用のタスク（projectKey は mockRepository で付与） */
+export const MOCK_TASKS: Array<Omit<TaskRow, 'projectKey' | 'taskId'> & { projectName: string }> = [
+  { projectName: 'AI Knowledge Library', task: '登録フォームをスマホ幅に対応', completed: true, sortOrder: 1 },
+  { projectName: 'AI Knowledge Library', task: 'URL取得のエラー表示を追加', completed: true, sortOrder: 2 },
+  { projectName: 'AI Knowledge Library', task: 'iPhone実機で登録テスト', completed: false, sortOrder: 3 },
+  { projectName: 'AI Knowledge Library', task: '公開設定を見直す', completed: false, sortOrder: 4 },
+  { projectName: 'note編集部｜記事制作・管理', task: 'note編集部Projectを作成', completed: false, sortOrder: 1 },
 ]

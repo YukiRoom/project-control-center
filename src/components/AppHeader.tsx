@@ -1,10 +1,12 @@
-import { KeyRound, RefreshCw } from 'lucide-react'
+import { KeyRound, LoaderCircle, RefreshCw } from 'lucide-react'
 import { formatTime } from '../lib/date'
 
 interface AppHeaderProps {
   sourceLabel: string
   fetchedAt?: Date
   isRefreshing: boolean
+  /** Google Sheets へ保存中 */
+  isSaving?: boolean
   canReload: boolean
   onReload: () => void
   /** 閲覧キーを保存している場合のみ渡す */
@@ -14,7 +16,7 @@ interface AppHeaderProps {
 const iconButton =
   'grid size-10 place-items-center rounded-lg text-navy-100 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-white disabled:opacity-40'
 
-export function AppHeader({ sourceLabel, fetchedAt, isRefreshing, canReload, onReload, onForgetKey }: AppHeaderProps) {
+export function AppHeader({ sourceLabel, fetchedAt, isRefreshing, isSaving = false, canReload, onReload, onForgetKey }: AppHeaderProps) {
   const isSheets = sourceLabel === 'Google Sheets'
   return (
     <header className="bg-navy-900 text-white">
@@ -29,7 +31,13 @@ export function AppHeader({ sourceLabel, fetchedAt, isRefreshing, canReload, onR
           {!isSheets && (
             <span className="mr-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-navy-100">{sourceLabel}</span>
           )}
-          {fetchedAt && (
+          {isSaving && (
+            <span className="mr-1 inline-flex items-center gap-1 text-xs text-navy-100" role="status">
+              <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+              保存中…
+            </span>
+          )}
+          {fetchedAt && !isSaving && (
             <span className="mr-1 hidden text-xs text-navy-200 tabular-nums sm:inline" title={`${sourceLabel} から取得`}>
               {formatTime(fetchedAt)} 更新
             </span>

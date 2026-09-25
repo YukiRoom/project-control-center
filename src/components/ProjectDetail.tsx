@@ -1,9 +1,11 @@
-import { ArrowRight, ArrowUpRight, Check, Copy, ExternalLink, X } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Check, Copy, ExternalLink, Lock, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { formatDate, formatRelative } from '../lib/date'
 import type { Project } from '../types/project'
+import { FocusToggle } from './FocusToggle'
 import { LinkifiedText } from './LinkifiedText'
 import { ResumeButton } from './ProjectActions'
+import { CategorySelect, ChatLinkSection, GoalEditor, TaskSection } from './ProjectEditors'
 import { StaleBadge } from './StaleBadge'
 import { StatusBadge } from './StatusBadge'
 
@@ -13,12 +15,30 @@ interface ProjectDetailProps {
   onClose: () => void
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, children, editable = false }: { label: string; children: ReactNode; editable?: boolean }) {
   return (
-    <div className="py-3.5">
-      <dt className="text-xs font-semibold tracking-wider text-slate-400">{label}</dt>
+    <div className="py-2.5">
+      <dt className="flex items-center gap-1.5 text-xs font-semibold tracking-wider text-slate-400">
+        {label}
+        {editable && (
+          <span className="rounded bg-navy-50 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-navy-600">編集可</span>
+        )}
+      </dt>
       <dd className="mt-1 text-[15px] leading-relaxed text-slate-700">{children}</dd>
     </div>
+  )
+}
+
+/** 「総合管理」シートの内容（アプリからは編集しない）であることを示す見出し */
+function ReadOnlyHeading({ title }: { title: string }) {
+  return (
+    <h3 className="flex items-center gap-1.5 pt-4 text-sm font-bold text-slate-800">
+      {title}
+      <span className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+        <Lock className="size-2.5" aria-hidden />
+        シートで編集
+      </span>
+    </h3>
   )
 }
 
@@ -69,7 +89,8 @@ function CopyButton({ text }: { text: string }) {
 }
 
 /**
- * 案件詳細。スマホ（〜sm）はボトムシート、PC（md〜）は右サイドパネル。
+ * 案件詳細（情報を見る・編集する場所）。スマホはボトムシート、PC（md〜）は右サイドパネル。
+ * 並び: 基本情報 → 現在地 → NEXT → 目標 → タスク → メインチャット → その他
  */
 export function ProjectDetail({ project, stale, onClose }: ProjectDetailProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null)
@@ -80,7 +101,9 @@ export function ProjectDetail({ project, stale, onClose }: ProjectDetailProps) {
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      // 入力中の Esc は入力のキャンセルに使うので、パネルは閉じない
+      const target = event.target as HTMLElement | null
+      if (event.key === 'Escape' && !target?.closest('input, textarea, select')) onClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => {
@@ -97,7 +120,7 @@ export function ProjectDetail({ project, stale, onClose }: ProjectDetailProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="project-detail-title"
-        className="relative flex max-h-[92dvh] w-full animate-sheet-up flex-col rounded-t-3xl bg-white shadow-2xl md:max-h-none md:w-[520px] md:animate-panel-in md:rounded-none md:rounded-l-2xl"
+        className="relative flex max-h-[94dvh] w-full animate-sheet-up flex-col rounded-t-3xl bg-white shadow-2xl md:max-h-none md:w-[560px] md:animate-panel-in md:rounded-none md:rounded-l-2xl"
       >
         <div className="mx-auto mt-2.5 h-1 w-10 shrink-0 rounded-full bg-slate-300 md:hidden" aria-hidden />
 
@@ -107,9 +130,10 @@ export function ProjectDetail({ project, stale, onClose }: ProjectDetailProps) {
             <h2 id="project-detail-title" className="mt-1 text-xl leading-snug font-bold text-slate-900">
               {project.name || '（無題の案件）'}
             </h2>
-            <div className="mt-2 flex flex-wrap gap-1.5">
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <StatusBadge project={project} size="md" />
               {stale && <StaleBadge updatedAt={project.updatedAt} />}
+              <FocusToggle project={project} variant="button" />
             </div>
           </div>
           <button
@@ -123,49 +147,70 @@ export function ProjectDetail({ project, stale, onClose }: ProjectDetailProps) {
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-4 md:px-6">
-          <div className="mt-4 rounded-xl border-l-4 border-navy-700 bg-navy-50 px-4 py-3.5">
-            <p className="flex items-center gap-1 text-xs font-bold tracking-wider text-navy-700">
-              <ArrowRight className="size-3.5" aria-hidden />
-              次にやること
-            </p>
-            <p className="mt-1 text-base leading-relaxed font-semibold text-navy-950">
-              {project.nextAction ? <LinkifiedText text={project.nextAction} /> : <Empty />}
-            </p>
+        <div className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto overscroll-contain px-5 pb-4 md:px-6">
+          {/* 基本情報 */}
+          <div>
+            <ReadOnlyHeading title="基本情報" />
+            <dl className="grid grid-cols-2 gap-x-4">
+              <Field label="大分類">{project.category || <Empty />}</Field>
+              <Field label="状態">{project.statusLabel || <Empty />}</Field>
+              <Field label="最終更新日">
+                {project.updatedAt ? (
+                  <>
+                    {formatDate(project.updatedAt)}
+                    <span className="ml-1 text-sm text-slate-400">（{formatRelative(project.updatedAt)}）</span>
+                  </>
+                ) : (
+                  <Empty />
+                )}
+              </Field>
+              <Field label="カテゴリー" editable>
+                <CategorySelect project={project} />
+              </Field>
+            </dl>
           </div>
 
-          <dl className="mt-1 divide-y divide-slate-100">
-            <Field label="現在地">{project.currentState ? <LinkifiedText text={project.currentState} /> : <Empty />}</Field>
-            <Field label="状態">{project.statusLabel || <Empty />}</Field>
-            <Field label="大分類">{project.category || <Empty />}</Field>
-            <Field label="最終更新日">
-              {project.updatedAt ? (
-                <>
-                  {formatDate(project.updatedAt)}
-                  <span className="ml-1.5 text-sm text-slate-400">（{formatRelative(project.updatedAt)}）</span>
-                </>
-              ) : (
-                <Empty />
-              )}
-            </Field>
-            <Field label="検索キーワード">
-              {project.keywords ? (
-                <>
-                  <span className="break-words">{project.keywords}</span>
-                  <CopyButton text={project.keywords} />
-                </>
-              ) : (
-                <Empty />
-              )}
-            </Field>
-            <Field label="メモ">{project.memo ? <LinkifiedText text={project.memo} /> : <Empty />}</Field>
-            <Field label="メインチャットURL">
-              <UrlValue url={project.chatUrl} />
-            </Field>
-            <Field label="プロジェクトURL">
-              <UrlValue url={project.projectUrl} />
-            </Field>
-          </dl>
+          {/* 現在地・NEXT（「総合管理」D・E列） */}
+          <div className="pb-4">
+            <ReadOnlyHeading title="現在地" />
+            <p className="mt-1.5 text-[15px] leading-relaxed text-slate-700">
+              {project.currentState ? <LinkifiedText text={project.currentState} /> : <Empty />}
+            </p>
+            <div className="mt-4 rounded-xl border-l-4 border-navy-700 bg-navy-50 px-4 py-3">
+              <p className="flex items-center gap-1 text-xs font-bold tracking-wider text-navy-700">
+                <ArrowRight className="size-3.5" aria-hidden />
+                NEXT（次にやること）
+              </p>
+              <p className="mt-1 text-base leading-relaxed font-semibold text-navy-950">
+                {project.nextAction ? <LinkifiedText text={project.nextAction} /> : <Empty />}
+              </p>
+            </div>
+          </div>
+
+          <GoalEditor key={`goal-${project.projectKey}`} project={project} />
+          <TaskSection project={project} />
+          <ChatLinkSection key={`chat-${project.projectKey}`} project={project} />
+
+          {/* その他（「総合管理」F・H・J列） */}
+          <div>
+            <ReadOnlyHeading title="その他" />
+            <dl>
+              <Field label="検索キーワード">
+                {project.keywords ? (
+                  <>
+                    <span className="break-words">{project.keywords}</span>
+                    <CopyButton text={project.keywords} />
+                  </>
+                ) : (
+                  <Empty />
+                )}
+              </Field>
+              <Field label="メモ">{project.memo ? <LinkifiedText text={project.memo} /> : <Empty />}</Field>
+              <Field label="プロジェクトURL">
+                <UrlValue url={project.projectUrl} />
+              </Field>
+            </dl>
+          </div>
         </div>
 
         {(project.chatUrl || project.projectUrl) && (
