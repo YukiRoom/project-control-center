@@ -1,4 +1,4 @@
-import { RefreshCw } from 'lucide-react'
+import { KeyRound, RefreshCw } from 'lucide-react'
 import { formatTime } from '../lib/date'
 
 interface AppHeaderProps {
@@ -7,9 +7,11 @@ interface AppHeaderProps {
   isRefreshing: boolean
   canReload: boolean
   onReload: () => void
+  /** 閲覧キーを保存している場合のみ渡す */
+  onForgetKey?: () => void
 }
 
-export function AppHeader({ sourceLabel, fetchedAt, isRefreshing, canReload, onReload }: AppHeaderProps) {
+export function AppHeader({ sourceLabel, fetchedAt, isRefreshing, canReload, onReload, onForgetKey }: AppHeaderProps) {
   return (
     <header className="bg-navy-900 text-white">
       <div className="mx-auto flex max-w-7xl items-start justify-between gap-4 px-4 pt-[max(1.25rem,env(safe-area-inset-top))] pb-5 sm:px-6 sm:py-7 lg:px-8">
@@ -24,6 +26,19 @@ export function AppHeader({ sourceLabel, fetchedAt, isRefreshing, canReload, onR
             </p>
             {fetchedAt && <p>{formatTime(fetchedAt)} 取得</p>}
           </div>
+          {onForgetKey && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('この端末から閲覧キーを削除しますか？（次回は再入力が必要です）')) onForgetKey()
+              }}
+              className="grid size-10 place-items-center rounded-lg border border-white/20 bg-white/10 transition hover:bg-white/20"
+              aria-label="この端末から閲覧キーを削除"
+              title="この端末から閲覧キーを削除"
+            >
+              <KeyRound className="size-4" aria-hidden />
+            </button>
+          )}
           <button
             type="button"
             onClick={onReload}

@@ -1,6 +1,6 @@
 import { CloudOff, FolderPlus, KeyRound, RefreshCw, SearchX, Settings } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { saveAccessKey } from '../data/accessKey'
+import { loadAccessKey, saveAccessKey } from '../data/accessKey'
 import type { DataError } from '../data'
 
 function Panel({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
@@ -52,6 +52,8 @@ function AccessKeyForm({ onSubmit }: { onSubmit: () => void }) {
         onSubmit()
       }}
     >
+      {/* パスワードマネージャーが閲覧キーを保存できるようにするための識別子 */}
+      <input type="text" name="username" autoComplete="username" value="project-control-center" readOnly hidden />
       <label className="flex-1">
         <span className="sr-only">閲覧キー</span>
         <input
@@ -75,8 +77,13 @@ export function ErrorState({ error, onRetry }: { error: DataError; onRetry: () =
     return (
       <Panel icon={<KeyRound className="size-6" aria-hidden />} title="閲覧キーを入力してください">
         <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-500">
-          Apps Script で設定した閲覧キー（ACCESS_KEY）を入力すると、この端末に保存されて次回から自動で表示されます。
+          Apps Script で設定した閲覧キー（ACCESS_KEY）を入力すると、この端末のブラウザにだけ保存され、次回から自動で表示されます。
         </p>
+        {loadAccessKey() && (
+          <p className="mt-3 rounded-lg bg-orange-50 px-3 py-2 text-sm text-orange-800" role="alert">
+            保存されている閲覧キーが正しくありません。もう一度入力してください。
+          </p>
+        )}
         <AccessKeyForm onSubmit={onRetry} />
       </Panel>
     )
