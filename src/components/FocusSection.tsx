@@ -131,7 +131,7 @@ export function FocusSection({ projects, onOpen }: FocusSectionProps) {
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {projects.map((project) => (
-            <FocusCard key={project.projectKey || project.rowNumber} project={project} onOpen={onOpen} />
+            <FocusCard key={project.projectId || project.rowNumber} project={project} onOpen={onOpen} />
           ))}
         </div>
       )}

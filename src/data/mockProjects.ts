@@ -150,8 +150,8 @@ export const MOCK_META: Record<string, { topCategory?: string; focus?: boolean; 
   '3Dライブアバター': { topCategory: 'CREATIVE' },
 }
 
-/** 開発用のタスク（projectKey は mockRepository で付与） */
-export const MOCK_TASKS: Array<Omit<TaskRow, 'projectKey' | 'taskId'> & { projectName: string }> = [
+/** 開発用のタスク（projectId は mockRepository で付与） */
+export const MOCK_TASKS: Array<Omit<TaskRow, 'projectId' | 'taskId'> & { projectName: string }> = [
   { projectName: 'AI Knowledge Library', task: '登録フォームをスマホ幅に対応', completed: true, sortOrder: 1 },
   { projectName: 'AI Knowledge Library', task: 'URL取得のエラー表示を追加', completed: true, sortOrder: 2 },
   { projectName: 'AI Knowledge Library', task: 'iPhone実機で登録テスト', completed: false, sortOrder: 3 },

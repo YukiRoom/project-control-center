@@ -2,17 +2,22 @@
  * PROJECT CONTROL CENTER — Google Sheets API（V3）
  *
  * 読み取り:
- *   - 「総合管理」A〜J（本番台帳）・「プロジェクト管理」・「タスク」を JSON で返す。
- * 書き込み（許可した操作のみ・すべて ACCESS_KEY と LockService で保護）:
- *   - setCategory / setFocus / setGoal                              … 「プロジェクト管理」シート
- *   - addTask / updateTask / toggleTask / deleteTask / reorderTask  … 「タスク」シート
+ *   - 「総合管理」A〜J（本番台帳）＋ K「プロジェクトID」、「プロジェクト管理」「タスク」を JSON で返す。
+ * 書き込み（許可した操作のみ・ACCESS_KEY 必須・LockService で排他）:
+ *   - setCategory / setFocus / setGoal                              … 「プロジェクト管理」
+ *   - addTask / updateTask / toggleTask / deleteTask / reorderTask  … 「タスク」
  *   - setChatUrl                                                     … 「総合管理」G列（メインチャットURL）のみ
+ *   - assignProjectIds                                               … 「総合管理」K列の空欄にだけ ID を発行
  *   シート名・行・列・値をクライアントが自由に指定する汎用書き込みは提供しない。
  *
- * 安全策:
- *   - 「総合管理」は G 列以外に書き込まない。行・列の追加／削除／並び替えもしない。
- *   - 対象行はクライアントの行番号ではなく projectKey（案件名から算出）で毎回照合する。
- *   - V3 用シートは自動作成しない。エディタから setupV3Sheets() を手動実行して作る。
+ * 案件の識別（projectId）:
+ *   - 「総合管理」K列「プロジェクトID」に保持する永続 ID（prj_ + ランダム 16 桁）。案件名に依存しない。
+ *   - 対象行はクライアントの行番号ではなく、毎回 K列を読み直して projectId で特定する。
+ *   - A〜J の構造・値・書式・入力規則は変更しない。
+ *
+ * セットアップ（エディタから手動実行）:
+ *   - previewV3Setup() … 何も書き込まずに、実行予定の変更内容と問題点をログに出す
+ *   - setupV3()        … K列の見出しと ID、「プロジェクト管理」「タスク」シートを作成する
  *
  * 注意: appsscript.json の権限は spreadsheets（読み書き可）。
  *   ACCESS_KEY（スクリプト プロパティ）は個人利用向けの簡易認証。
@@ -38,10 +43,13 @@ var MASTER_COLUMNS = [
   { key: 'updatedAt', header: '最終更新日' },
   { key: 'memo', header: 'メモ' },
 ];
-var MASTER_CHAT_URL_COLUMN = 7; // G列。V3 で「総合管理」に書き込むのはこの列だけ
+var MASTER_CHAT_URL_COLUMN = 7; // G列
+var MASTER_ID_COLUMN = 11; // K列
+var MASTER_ID_HEADER = 'プロジェクトID';
+var PROJECT_ID_PATTERN = /^prj_[0-9a-f]{16}$/;
 
-var PROJECT_HEADERS = ['projectKey', 'category', 'focus', 'goal', 'createdAt', 'updatedAt', 'projectName'];
-var TASK_HEADERS = ['taskId', 'projectKey', 'task', 'completed', 'sortOrder', 'createdAt', 'updatedAt'];
+var PROJECT_HEADERS = ['projectId', 'category', 'focus', 'goal', 'createdAt', 'updatedAt', 'projectName'];
+var TASK_HEADERS = ['taskId', 'projectId', 'task', 'completed', 'sortOrder', 'createdAt', 'updatedAt'];
 
 /** V3 カテゴリー。追加する場合はここに 1 行足す（key はシートに保存される値） */
 var CATEGORIES = [
@@ -92,16 +100,23 @@ function buildState_() {
   var master = readMaster_();
   var meta = readProjectMeta_();
   var tasks = readTasks_();
-  var ready = meta !== null && tasks !== null;
+  var ready = master.idColumnReady && meta !== null && tasks !== null;
 
-  var masterKeys = {};
-  var projects = master.map(function (row) {
-    masterKeys[row.projectKey] = true;
-    var m = ready ? meta.byKey[row.projectKey] : null;
+  var liveIds = {};
+  var missingIdCount = 0;
+  var nameChangedCount = 0;
+  var projects = master.rows.map(function (row) {
+    if (row.projectId) liveIds[row.projectId] = true;
+    if (!row.projectId) missingIdCount++;
+    var m = ready && row.projectId && !row.idConflict ? meta.byId[row.projectId] : null;
+    var previousName = m && m.projectName && m.projectName !== row.values.name ? m.projectName : '';
+    if (previousName) nameChangedCount++;
     return {
       rowNumber: row.rowNumber,
-      projectKey: row.projectKey,
-      keyConflict: row.keyConflict,
+      projectId: row.projectId,
+      idConflict: row.idConflict,
+      idMissing: !row.projectId,
+      previousName: previousName,
       category: row.values.category,
       name: row.values.name,
       status: row.values.status,
@@ -120,8 +135,8 @@ function buildState_() {
 
   var orphanCount = 0;
   if (ready) {
-    Object.keys(meta.byKey).forEach(function (key) {
-      if (!masterKeys[key]) orphanCount++;
+    Object.keys(meta.byId).forEach(function (id) {
+      if (!liveIds[id]) orphanCount++;
     });
   }
 
@@ -132,17 +147,26 @@ function buildState_() {
     projects: projects,
     tasks: ready
       ? tasks.list
-          .filter(function (t) { return masterKeys[t.projectKey]; })
+          .filter(function (t) { return liveIds[t.projectId]; })
           .map(function (t) {
-            return { taskId: t.taskId, projectKey: t.projectKey, task: t.task, completed: t.completed, sortOrder: t.sortOrder };
+            return { taskId: t.taskId, projectId: t.projectId, task: t.task, completed: t.completed, sortOrder: t.sortOrder };
           })
       : [],
     categories: CATEGORIES,
-    v3: { ready: ready, orphanCount: orphanCount, maxFocus: MAX_FOCUS },
+    v3: {
+      ready: ready,
+      orphanCount: orphanCount,
+      missingIdCount: ready ? missingIdCount : 0,
+      nameChangedCount: nameChangedCount,
+      maxFocus: MAX_FOCUS,
+    },
   };
 }
 
-/** 「総合管理」を読み、各行に projectKey を付ける（書き込みはしない） */
+/**
+ * 「総合管理」を読む（書き込みはしない）。
+ * K列の見出しが「プロジェクトID」なら各行の projectId を読み、形式が正しくない値・重複を検出する。
+ */
 function readMaster_() {
   var ss = spreadsheet_();
   var sheet = ss.getSheetByName(MASTER_SHEET);
@@ -159,26 +183,32 @@ function readMaster_() {
     );
   }
 
+  var hasIdColumn = sheet.getMaxColumns() >= MASTER_ID_COLUMN;
+  var idHeader = hasIdColumn ? String(sheet.getRange(1, MASTER_ID_COLUMN).getDisplayValue()).trim() : '';
+  var idColumnReady = idHeader === MASTER_ID_HEADER;
+  var width = idColumnReady ? MASTER_ID_COLUMN : MASTER_COLUMNS.length;
+
   var lastRow = sheet.getLastRow();
   var timeZone = ss.getSpreadsheetTimeZone();
-  var values = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, MASTER_COLUMNS.length).getValues() : [];
+  var values = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, width).getValues() : [];
   var rows = [];
-  var keyCount = {};
+  var idCount = {};
   values.forEach(function (row, index) {
-    var isBlank = row.every(function (cell) { return String(cell).trim() === ''; });
+    var isBlank = row.slice(0, MASTER_COLUMNS.length).every(function (cell) { return String(cell).trim() === ''; });
     if (isBlank) return;
     var record = {};
     MASTER_COLUMNS.forEach(function (column, i) {
       record[column.key] = toText_(row[i], timeZone);
     });
-    var projectKey = projectKeyFor_(record.name);
-    keyCount[projectKey] = (keyCount[projectKey] || 0) + 1;
-    rows.push({ rowNumber: index + 2, projectKey: projectKey, values: record });
+    var rawId = idColumnReady ? String(row[MASTER_ID_COLUMN - 1]).trim() : '';
+    var projectId = PROJECT_ID_PATTERN.test(rawId) ? rawId : '';
+    if (projectId) idCount[projectId] = (idCount[projectId] || 0) + 1;
+    rows.push({ rowNumber: index + 2, projectId: projectId, rawId: rawId, values: record });
   });
   rows.forEach(function (row) {
-    row.keyConflict = keyCount[row.projectKey] > 1;
+    row.idConflict = row.projectId !== '' && idCount[row.projectId] > 1;
   });
-  return rows;
+  return { sheet: sheet, rows: rows, idHeader: idHeader, idColumnReady: idColumnReady, hasIdColumn: hasIdColumn };
 }
 
 /** 「プロジェクト管理」。シートがなければ null（未セットアップ） */
@@ -186,19 +216,20 @@ function readProjectMeta_() {
   var sheet = spreadsheet_().getSheetByName(PROJECTS_SHEET);
   if (!sheet) return null;
   assertHeaders_(sheet, PROJECT_HEADERS);
-  var byKey = {};
+  var byId = {};
   dataRows_(sheet, PROJECT_HEADERS.length).forEach(function (item) {
     var r = item.values;
-    var key = String(r[0]).trim();
-    if (!key) return;
-    byKey[key] = {
+    var id = String(r[0]).trim();
+    if (!id) return;
+    byId[id] = {
       rowNumber: item.rowNumber,
       category: String(r[1]).trim(),
       focus: r[2] === true || String(r[2]).toUpperCase() === 'TRUE',
       goal: String(r[3]),
+      projectName: String(r[6]).trim(),
     };
   });
-  return { sheet: sheet, byKey: byKey };
+  return { sheet: sheet, byId: byId };
 }
 
 /** 「タスク」。シートがなければ null（未セットアップ） */
@@ -214,7 +245,7 @@ function readTasks_() {
     list.push({
       rowNumber: item.rowNumber,
       taskId: taskId,
-      projectKey: String(r[1]).trim(),
+      projectId: String(r[1]).trim(),
       task: String(r[2]),
       completed: r[3] === true || String(r[3]).toUpperCase() === 'TRUE',
       sortOrder: Number(r[4]) || 0,
@@ -231,18 +262,20 @@ var MUTATIONS = {
     if (category && !CATEGORIES.some(function (c) { return c.key === category; })) {
       throw apiError_('INVALID_INPUT', '不明なカテゴリーです: ' + category);
     }
-    updateMeta_(requireProject_(req.projectKey), { category: category });
+    updateMeta_(requireProject_(req.projectId), { category: category });
   },
 
   setFocus: function (req) {
-    var project = requireProject_(req.projectKey);
+    var project = requireProject_(req.projectId);
     var focus = requireBoolean_(req.focus, 'focus');
     if (focus) {
       var meta = requireV3_().meta;
-      var liveKeys = {};
-      readMaster_().forEach(function (row) { liveKeys[row.projectKey] = true; });
-      var focused = Object.keys(meta.byKey).filter(function (key) {
-        return key !== project.projectKey && liveKeys[key] && meta.byKey[key].focus;
+      var liveIds = {};
+      readMaster_().rows.forEach(function (row) {
+        if (row.projectId) liveIds[row.projectId] = true;
+      });
+      var focused = Object.keys(meta.byId).filter(function (id) {
+        return id !== project.projectId && liveIds[id] && meta.byId[id].focus;
       });
       if (focused.length >= MAX_FOCUS) {
         throw apiError_('FOCUS_LIMIT', 'FOCUSは最大' + MAX_FOCUS + '件です。どれかを外してください。');
@@ -253,14 +286,14 @@ var MUTATIONS = {
 
   setGoal: function (req) {
     var goal = optionalString_(req.goal, 'goal', MAX_GOAL_LENGTH);
-    updateMeta_(requireProject_(req.projectKey), { goal: goal });
+    updateMeta_(requireProject_(req.projectId), { goal: goal });
   },
 
   addTask: function (req) {
-    var project = requireProject_(req.projectKey);
+    var project = requireProject_(req.projectId);
     var text = requiredString_(req.task, 'task', MAX_TASK_LENGTH);
     var tasks = requireV3_().tasks;
-    var own = tasks.list.filter(function (t) { return t.projectKey === project.projectKey; });
+    var own = tasks.list.filter(function (t) { return t.projectId === project.projectId; });
     if (own.length >= MAX_TASKS_PER_PROJECT) {
       throw apiError_('INVALID_INPUT', 'タスクは1案件につき' + MAX_TASKS_PER_PROJECT + '件までです。');
     }
@@ -268,7 +301,7 @@ var MUTATIONS = {
     var now = now_();
     tasks.sheet.appendRow([
       't_' + Utilities.getUuid().replace(/-/g, '').slice(0, 16),
-      project.projectKey,
+      project.projectId,
       safeText_(text),
       false,
       maxOrder + 1,
@@ -303,7 +336,7 @@ var MUTATIONS = {
     var direction = req.direction;
     if (direction !== 'up' && direction !== 'down') throw apiError_('INVALID_INPUT', 'direction は up / down です。');
     var siblings = found.all
-      .filter(function (t) { return t.projectKey === found.task.projectKey; })
+      .filter(function (t) { return t.projectId === found.task.projectId; })
       .sort(function (a, b) { return a.sortOrder - b.sortOrder || a.rowNumber - b.rowNumber; });
     var index = siblings.findIndex(function (t) { return t.taskId === found.task.taskId; });
     var target = direction === 'up' ? index - 1 : index + 1;
@@ -322,7 +355,7 @@ var MUTATIONS = {
 
   /** 「総合管理」G列（メインチャットURL）だけを書き換える */
   setChatUrl: function (req) {
-    var project = requireProject_(req.projectKey);
+    var project = requireProject_(req.projectId);
     var url = typeof req.url === 'string' ? req.url.trim() : '';
     if (url === '') {
       if (req.clear !== true) throw apiError_('INVALID_INPUT', 'URLが空です。削除する場合は「リンクを削除」を使ってください。');
@@ -334,21 +367,38 @@ var MUTATIONS = {
     if (project.values.chatUrl !== expected) {
       throw apiError_('CONFLICT', 'この案件のチャットURLは別の場所で変更されています。再読み込みしてから操作してください。');
     }
-    var sheet = spreadsheet_().getSheetByName(MASTER_SHEET);
-    sheet.getRange(project.rowNumber, MASTER_CHAT_URL_COLUMN).setValue(url);
+    project.sheet.getRange(project.rowNumber, MASTER_CHAT_URL_COLUMN).setValue(url);
+  },
+
+  /** 「総合管理」に追加された行など、K列が空の案件にだけ ID を発行する */
+  assignProjectIds: function () {
+    var master = readMaster_();
+    if (!master.idColumnReady) throw apiError_('SETUP_REQUIRED', 'K列「' + MASTER_ID_HEADER + '」がありません。setupV3 を実行してください。');
+    requireV3_();
+    var invalid = master.rows.filter(function (row) { return row.rawId && !row.projectId; });
+    if (invalid.length > 0) {
+      throw apiError_('INVALID_ID', 'K列に形式が正しくない値があります（' + invalid.map(function (r) { return r.rowNumber + '行目'; }).join('、') + '）。');
+    }
+    issueMissingIds_(master);
   },
 };
 
-/** projectKey に一致する「総合管理」の行を毎回読み直して特定する（行番号は信用しない） */
-function requireProject_(projectKey) {
-  if (typeof projectKey !== 'string' || !/^pk_[0-9a-f]{12}$/.test(projectKey)) {
-    throw apiError_('INVALID_INPUT', 'projectKey が正しくありません。');
+/** projectId に一致する「総合管理」の行を毎回読み直して特定する（行番号は信用しない） */
+function requireProject_(projectId) {
+  if (typeof projectId !== 'string' || !PROJECT_ID_PATTERN.test(projectId)) {
+    throw apiError_('INVALID_INPUT', 'projectId が正しくありません。');
   }
-  var matches = readMaster_().filter(function (row) { return row.projectKey === projectKey; });
+  var master = readMaster_();
+  if (!master.idColumnReady) throw apiError_('SETUP_REQUIRED', 'K列「' + MASTER_ID_HEADER + '」がありません。setupV3 を実行してください。');
+  var matches = master.rows.filter(function (row) { return row.projectId === projectId; });
   if (matches.length === 0) throw apiError_('NOT_FOUND', '案件が見つかりません。再読み込みしてください。');
   if (matches.length > 1) {
-    throw apiError_('KEY_CONFLICT', '同じ案件名が複数行あるため更新できません。「' + MASTER_SHEET + '」の案件名を区別してください。');
+    throw apiError_(
+      'ID_CONFLICT',
+      '同じプロジェクトIDが複数行にあります（' + matches.map(function (r) { return r.rowNumber + '行目'; }).join('、') + '）。行をコピーした場合は、コピー先のK列を空にしてください。',
+    );
   }
+  matches[0].sheet = master.sheet;
   return matches[0];
 }
 
@@ -356,7 +406,7 @@ function requireV3_() {
   var meta = readProjectMeta_();
   var tasks = readTasks_();
   if (meta === null || tasks === null) {
-    throw apiError_('SETUP_REQUIRED', 'V3 用シートがありません。Apps Script エディタで setupV3Sheets を実行してください。');
+    throw apiError_('SETUP_REQUIRED', 'V3 用シートがありません。Apps Script エディタで setupV3 を実行してください。');
   }
   return { meta: meta, tasks: tasks };
 }
@@ -374,10 +424,10 @@ function requireTask_(taskId) {
 /** 「プロジェクト管理」に案件の行がなければ追加して行番号を返す */
 function ensureMeta_(project) {
   var meta = requireV3_().meta;
-  var existing = meta.byKey[project.projectKey];
+  var existing = meta.byId[project.projectId];
   if (existing) return existing.rowNumber;
   var now = now_();
-  meta.sheet.appendRow([project.projectKey, '', false, '', now, now, safeText_(project.values.name)]);
+  meta.sheet.appendRow([project.projectId, '', false, '', now, now, safeText_(project.values.name)]);
   return meta.sheet.getLastRow();
 }
 
@@ -391,51 +441,141 @@ function updateMeta_(project, patch) {
   sheet.getRange(row, 7).setValue(safeText_(project.values.name)); // 参考用に最新の案件名を記録
 }
 
+/** K列が空の案件に ID を書き込み、「プロジェクト管理」に行を用意する。書き込んだ件数を返す */
+function issueMissingIds_(master) {
+  var used = {};
+  master.rows.forEach(function (row) {
+    if (row.projectId) used[row.projectId] = true;
+  });
+  var issued = 0;
+  master.rows.forEach(function (row) {
+    if (row.rawId) return; // 既に値がある行（正しい ID・不正な値とも）は触らない
+    var id = newProjectId_(used);
+    used[id] = true;
+    master.sheet.getRange(row.rowNumber, MASTER_ID_COLUMN).setValue(id);
+    row.projectId = id;
+    ensureMeta_(row);
+    issued++;
+  });
+  return issued;
+}
+
+function newProjectId_(used) {
+  for (;;) {
+    var id = 'prj_' + Utilities.getUuid().replace(/-/g, '').slice(0, 16);
+    if (!used[id]) return id;
+  }
+}
+
 // ───────────────────────── セットアップ（手動実行） ─────────────────────────
 
-/**
- * V3 用の「プロジェクト管理」「タスク」シートを作成する。
- * 既に存在するシートには一切触れない。「総合管理」などの既存シートも変更しない。
- * Apps Script エディタで関数 setupV3Sheets を選んで「実行」する。
- */
-function setupV3Sheets() {
+/** セットアップ前の点検。問題があれば理由の一覧を返す（書き込みなし） */
+function inspectSetup_() {
   var ss = spreadsheet_();
-  [
-    { name: PROJECTS_SHEET, headers: PROJECT_HEADERS, textColumns: [1, 2, 4, 5, 6, 7] },
-    { name: TASKS_SHEET, headers: TASK_HEADERS, textColumns: [1, 2, 3, 6, 7] },
-  ].forEach(function (def) {
-    if (ss.getSheetByName(def.name)) {
-      Logger.log('「' + def.name + '」は既に存在するため変更しません。');
-      return;
+  var master = readMaster_();
+  var problems = [];
+  if (master.idHeader && master.idHeader !== MASTER_ID_HEADER) {
+    problems.push('「' + MASTER_SHEET + '」K1 に別の値「' + master.idHeader + '」があります。');
+  }
+  if (!master.idColumnReady && master.hasIdColumn) {
+    var lastRow = master.sheet.getLastRow();
+    if (lastRow > 1) {
+      var used = master.sheet
+        .getRange(2, MASTER_ID_COLUMN, lastRow - 1, 1)
+        .getValues()
+        .filter(function (r) { return String(r[0]).trim() !== ''; }).length;
+      if (used > 0) problems.push('「' + MASTER_SHEET + '」K列（2行目以降）に既に ' + used + ' 件の値があります。');
     }
-    var sheet = ss.insertSheet(def.name, ss.getSheets().length); // 末尾に追加
-    sheet.getRange(1, 1, 1, def.headers.length).setValues([def.headers]).setFontWeight('bold');
-    sheet.setFrozenRows(1);
-    // 自由入力の列は書式なしテキストにして、日付・数値への自動変換を防ぐ
-    def.textColumns.forEach(function (col) {
-      sheet.getRange(2, col, sheet.getMaxRows() - 1, 1).setNumberFormat('@');
-    });
-    Logger.log('「' + def.name + '」を作成しました。');
+  }
+  var invalid = master.rows.filter(function (row) { return row.rawId && !row.projectId; });
+  if (invalid.length > 0) problems.push('K列に形式が正しくない値があります（' + invalid.length + '件）。');
+  var conflicts = master.rows.filter(function (row) { return row.idConflict; });
+  if (conflicts.length > 0) problems.push('K列に重複した ID があります（' + conflicts.length + '件）。');
+  [PROJECTS_SHEET, TASKS_SHEET].forEach(function (name) {
+    var sheet = ss.getSheetByName(name);
+    if (sheet) {
+      try {
+        assertHeaders_(sheet, name === PROJECTS_SHEET ? PROJECT_HEADERS : TASK_HEADERS);
+      } catch (error) {
+        problems.push('既存のシート「' + name + '」の見出しが想定と異なります。');
+      }
+    }
   });
+  return {
+    master: master,
+    problems: problems,
+    missing: master.rows.filter(function (row) { return !row.rawId; }).length,
+    createProjects: !ss.getSheetByName(PROJECTS_SHEET),
+    createTasks: !ss.getSheetByName(TASKS_SHEET),
+  };
+}
+
+/** 実行予定の変更をログに出すだけ（何も書き込まない） */
+function previewV3Setup() {
+  var plan = inspectSetup_();
+  Logger.log('案件数: ' + plan.master.rows.length);
+  Logger.log('K1 見出し: ' + (plan.master.idColumnReady ? '設定済み' : '「' + MASTER_ID_HEADER + '」を書き込む予定'));
+  Logger.log('K列に ID を発行する行: ' + plan.missing + ' 件');
+  Logger.log('「' + PROJECTS_SHEET + '」: ' + (plan.createProjects ? '新規作成する予定' : '既存（変更しない）'));
+  Logger.log('「' + TASKS_SHEET + '」: ' + (plan.createTasks ? '新規作成する予定' : '既存（変更しない）'));
+  Logger.log(plan.problems.length ? '⚠ 問題: ' + plan.problems.join(' / ') + ' → setupV3 は実行されません。' : '問題なし。setupV3 を実行できます。');
+}
+
+/**
+ * V3 の初期設定。問題があれば何も変更せずに中止する。
+ * 1. 「総合管理」K1 に「プロジェクトID」、K列の空欄に ID を発行（A〜J は変更しない）
+ * 2. 「プロジェクト管理」「タスク」シートを末尾に作成（既存なら変更しない）
+ * 3. 「プロジェクト管理」に全案件の行を作成（projectId・案件名）
+ * 4. K列に「編集時に警告」の保護を設定（誤編集防止。編集自体は可能）
+ */
+function setupV3() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new Error('他の処理が実行中です。');
+  try {
+    var plan = inspectSetup_();
+    if (plan.problems.length > 0) throw new Error('セットアップを中止しました（変更なし）: ' + plan.problems.join(' / '));
+    var ss = spreadsheet_();
+    var sheet = plan.master.sheet;
+
+    if (!plan.master.idColumnReady) {
+      if (!plan.master.hasIdColumn) sheet.insertColumnAfter(MASTER_COLUMNS.length); // 列数が J までしかない場合のみ K列を用意
+      sheet.getRange(1, MASTER_COLUMNS.length).copyFormatToRange(sheet, MASTER_ID_COLUMN, MASTER_ID_COLUMN, 1, 1);
+      sheet.getRange(1, MASTER_ID_COLUMN).setValue(MASTER_ID_HEADER);
+      var protection = sheet.getRange(1, MASTER_ID_COLUMN, sheet.getMaxRows(), 1).protect();
+      protection.setDescription('PROJECT CONTROL CENTER のプロジェクトID（編集・削除しないでください）');
+      protection.setWarningOnly(true);
+    }
+
+    [
+      { name: PROJECTS_SHEET, headers: PROJECT_HEADERS, textColumns: [1, 2, 4, 5, 6, 7] },
+      { name: TASKS_SHEET, headers: TASK_HEADERS, textColumns: [1, 2, 3, 6, 7] },
+    ].forEach(function (def) {
+      if (ss.getSheetByName(def.name)) return;
+      var created = ss.insertSheet(def.name, ss.getSheets().length); // 末尾に追加
+      created.getRange(1, 1, 1, def.headers.length).setValues([def.headers]).setFontWeight('bold');
+      created.setFrozenRows(1);
+      // 自由入力の列は書式なしテキストにして、日付・数値への自動変換を防ぐ
+      def.textColumns.forEach(function (col) {
+        created.getRange(2, col, created.getMaxRows() - 1, 1).setNumberFormat('@');
+      });
+    });
+
+    var master = readMaster_();
+    var issued = issueMissingIds_(master);
+    master.rows.forEach(function (row) {
+      if (row.projectId) ensureMeta_(row);
+    });
+    SpreadsheetApp.flush();
+    Logger.log('完了: ID を ' + issued + ' 件発行しました（案件数 ' + master.rows.length + '）。');
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ───────────────────────── ユーティリティ ─────────────────────────
 
 function spreadsheet_() {
   return SpreadsheetApp.openById(SPREADSHEET_ID);
-}
-
-/** 案件名（B列）から安定したキーを作る: pk_ + SHA-256 の先頭 12 桁 */
-function projectKeyFor_(name) {
-  var normalized = String(name).normalize('NFKC').trim().replace(/\s+/g, ' ');
-  var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, normalized, Utilities.Charset.UTF_8);
-  var hex = digest
-    .map(function (b) {
-      var v = (b + 256) % 256;
-      return (v < 16 ? '0' : '') + v.toString(16);
-    })
-    .join('');
-  return 'pk_' + hex.slice(0, 12);
 }
 
 function dataRows_(sheet, width) {
@@ -528,9 +668,7 @@ function json_(body) {
 /** エディタから実行して読み取り結果をログで確認するためのテスト関数（書き込みなし） */
 function testListProjects() {
   var state = buildState_();
-  var conflicts = state.projects.filter(function (p) { return p.keyConflict; });
   Logger.log('取得件数: ' + state.projects.length);
-  Logger.log('V3 シート: ' + (state.v3.ready ? '準備済み' : '未作成（setupV3Sheets を実行してください）'));
-  Logger.log('案件名の重複: ' + (conflicts.length ? conflicts.map(function (p) { return p.name; }).join('、') : 'なし'));
+  Logger.log('V3: ' + (state.v3.ready ? '準備済み' : '未設定（previewV3Setup → setupV3 を実行してください）'));
   if (state.projects.length > 0) Logger.log(JSON.stringify(state.projects[0]));
 }

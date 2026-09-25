@@ -4,7 +4,7 @@ export type ProjectStatus = 'operating' | 'developing' | 'planning' | 'onHold' |
 /** V3 タスク（「タスク」シート 1 行） */
 export interface Task {
   taskId: string
-  projectKey: string
+  projectId: string
   title: string
   completed: boolean
   sortOrder: number
@@ -14,10 +14,14 @@ export interface Task {
 export interface Project {
   /** シート上の行番号（表示・React key 用。書き込み対象の特定には使わない） */
   rowNumber: number
-  /** 案件名から Apps Script が算出する安定キー（V3 の書き込みはこれで対象を特定） */
-  projectKey: string
-  /** 同じ案件名が複数行あり、V3 の書き込みができない */
-  keyConflict: boolean
+  /** 「総合管理」K列の永続 ID（prj_…）。V3 の書き込みはこれで対象を特定する。未発行なら空 */
+  projectId: string
+  /** 同じ ID が複数行にある（行コピーなど）ため、V3 の書き込みができない */
+  idConflict: boolean
+  /** K列に ID がまだない（新しく追加された行など） */
+  idMissing: boolean
+  /** 前回アプリで記録した案件名と違う場合の旧名（名称変更、または並べ替えのずれの検知用） */
+  previousName: string
   /** A: 大分類 */
   category: string
   /** B: プロジェクト／案件 */
@@ -62,8 +66,10 @@ export interface Category {
 /** Apps Script API が返す案件 1 件 */
 export interface ProjectRow {
   rowNumber: number
-  projectKey?: string
-  keyConflict?: boolean
+  projectId?: string
+  idConflict?: boolean
+  idMissing?: boolean
+  previousName?: string
   category: string
   name: string
   status: string
@@ -82,7 +88,7 @@ export interface ProjectRow {
 /** Apps Script API が返すタスク 1 件 */
 export interface TaskRow {
   taskId: string
-  projectKey: string
+  projectId: string
   task: string
   completed: boolean
   sortOrder: number
@@ -94,19 +100,24 @@ export interface ProjectDataset {
   categories: Category[]
   /** V3 用シートが用意され、FOCUS・目標・タスクが使えるか */
   v3Ready: boolean
-  /** 案件名の変更などで「総合管理」と紐付かなくなった管理データの件数 */
+  /** 「総合管理」から行が削除されるなどして紐付かなくなった管理データの件数 */
   orphanCount: number
+  /** K列に ID がない案件の件数 */
+  missingIdCount: number
+  /** 前回記録した案件名と異なる案件の件数 */
+  nameChangedCount: number
   maxFocus: number
 }
 
 /** サーバーに許可された更新操作（任意セルの書き換えはできない） */
 export type Mutation =
-  | { action: 'setCategory'; projectKey: string; category: string }
-  | { action: 'setFocus'; projectKey: string; focus: boolean }
-  | { action: 'setGoal'; projectKey: string; goal: string }
-  | { action: 'addTask'; projectKey: string; task: string }
+  | { action: 'setCategory'; projectId: string; category: string }
+  | { action: 'setFocus'; projectId: string; focus: boolean }
+  | { action: 'setGoal'; projectId: string; goal: string }
+  | { action: 'addTask'; projectId: string; task: string }
   | { action: 'updateTask'; taskId: string; task: string }
   | { action: 'toggleTask'; taskId: string; completed: boolean }
   | { action: 'deleteTask'; taskId: string }
   | { action: 'reorderTask'; taskId: string; direction: 'up' | 'down' }
-  | { action: 'setChatUrl'; projectKey: string; url: string; expectedUrl: string; clear?: boolean }
+  | { action: 'setChatUrl'; projectId: string; url: string; expectedUrl: string; clear?: boolean }
+  | { action: 'assignProjectIds' }

@@ -22,12 +22,16 @@ export function useCommandsValue(
       return canEditProject(project)
     }
     const canEditProject = (project: Project): boolean => {
-      if (!project.projectKey) {
-        notify('info', 'Apps Script を V3 に更新すると編集できます。')
+      if (project.idMissing && dataset.v3Ready) {
+        notify('info', 'この案件はプロジェクトIDが未発行です。詳細画面の「IDを発行」から発行してください。')
         return false
       }
-      if (project.keyConflict) {
-        notify('error', '同じ案件名が複数あるため編集できません。「総合管理」の案件名を区別してください。')
+      if (!project.projectId) {
+        notify('info', 'Google Sheets 側の V3 初期設定が終わると編集できます。')
+        return false
+      }
+      if (project.idConflict) {
+        notify('error', '同じプロジェクトIDが複数行にあります。「総合管理」でコピーした行のK列を空にしてください。')
         return false
       }
       return true
@@ -45,19 +49,19 @@ export function useCommandsValue(
           notify('info', `FOCUSは最大${dataset.maxFocus}件です。どれかを外してください`)
           return
         }
-        void mutate({ action: 'setFocus', projectKey: project.projectKey, focus: !project.focus })
+        void mutate({ action: 'setFocus', projectId: project.projectId, focus: !project.focus })
       },
       async setCategory(project, category) {
         if (!canEditMeta(project)) return false
-        return mutate({ action: 'setCategory', projectKey: project.projectKey, category })
+        return mutate({ action: 'setCategory', projectId: project.projectId, category })
       },
       async setGoal(project, goal) {
         if (!canEditMeta(project)) return false
-        return mutate({ action: 'setGoal', projectKey: project.projectKey, goal })
+        return mutate({ action: 'setGoal', projectId: project.projectId, goal })
       },
       async addTask(project, title) {
         if (!canEditMeta(project)) return false
-        return mutate({ action: 'addTask', projectKey: project.projectKey, task: title })
+        return mutate({ action: 'addTask', projectId: project.projectId, task: title })
       },
       async renameTask(task, title) {
         if (!canEditTask(task)) return false
@@ -78,7 +82,10 @@ export function useCommandsValue(
       },
       async setChatUrl(project, url) {
         if (!canEditProject(project)) return false
-        return mutate({ action: 'setChatUrl', projectKey: project.projectKey, url, expectedUrl: project.chatUrlRaw })
+        return mutate({ action: 'setChatUrl', projectId: project.projectId, url, expectedUrl: project.chatUrlRaw })
+      },
+      async assignProjectIds() {
+        return mutate({ action: 'assignProjectIds' })
       },
       async clearChatUrl(project) {
         if (!canEditProject(project)) return false
@@ -87,7 +94,7 @@ export function useCommandsValue(
         }
         return mutate({
           action: 'setChatUrl',
-          projectKey: project.projectKey,
+          projectId: project.projectId,
           url: '',
           expectedUrl: project.chatUrlRaw,
           clear: true,

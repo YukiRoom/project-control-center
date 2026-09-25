@@ -1,6 +1,7 @@
-import { ArrowRight, ArrowUpRight, Check, Copy, ExternalLink, Lock, X } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Check, Copy, ExternalLink, Info, Lock, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { formatDate, formatRelative } from '../lib/date'
+import { useCommands } from '../context/commands'
 import type { Project } from '../types/project'
 import { FocusToggle } from './FocusToggle'
 import { LinkifiedText } from './LinkifiedText'
@@ -40,6 +41,50 @@ function ReadOnlyHeading({ title }: { title: string }) {
       </span>
     </h3>
   )
+}
+
+/** ID 未発行・重複・名称変更など、紐付けに関するお知らせ */
+function IdentityNotice({ project }: { project: Project }) {
+  const { v3Ready, assignProjectIds } = useCommands()
+  if (!v3Ready) return null
+  const box = 'mt-4 flex items-start gap-2 rounded-xl px-3.5 py-3 text-sm leading-relaxed'
+  if (project.idMissing) {
+    return (
+      <div className={`${box} bg-orange-50 text-orange-900`}>
+        <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <div className="flex-1">
+          <p>この案件にはプロジェクトIDがまだありません（「総合管理」に追加された行など）。発行すると目標・タスク・FOCUSを使えます。</p>
+          <button
+            type="button"
+            onClick={() => void assignProjectIds()}
+            className="mt-2 inline-flex h-9 items-center rounded-lg bg-orange-600 px-3 text-sm font-semibold text-white hover:bg-orange-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-600"
+          >
+            IDを発行（「総合管理」K列の空欄に書き込み）
+          </button>
+        </div>
+      </div>
+    )
+  }
+  if (project.idConflict) {
+    return (
+      <div className={`${box} bg-red-50 text-red-900`}>
+        <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <p>同じプロジェクトIDが複数行にあります。「総合管理」で行をコピーした場合は、コピー先のK列（プロジェクトID）を空にしてください。</p>
+      </div>
+    )
+  }
+  if (project.previousName) {
+    return (
+      <div className={`${box} bg-slate-100 text-slate-700`}>
+        <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <p>
+          前回の記録では案件名が「{project.previousName}」でした。名称を変更した場合は問題ありません（次に編集したときに記録が更新されます）。
+          並べ替えなどで K列がずれた可能性がある場合は、「総合管理」の K列を確認してください。
+        </p>
+      </div>
+    )
+  }
+  return null
 }
 
 function Empty() {
@@ -150,6 +195,7 @@ export function ProjectDetail({ project, stale, onClose }: ProjectDetailProps) {
         <div className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto overscroll-contain px-5 pb-4 md:px-6">
           {/* 基本情報 */}
           <div>
+            <IdentityNotice project={project} />
             <ReadOnlyHeading title="基本情報" />
             <dl className="grid grid-cols-2 gap-x-4">
               <Field label="大分類">{project.category || <Empty />}</Field>
@@ -187,9 +233,9 @@ export function ProjectDetail({ project, stale, onClose }: ProjectDetailProps) {
             </div>
           </div>
 
-          <GoalEditor key={`goal-${project.projectKey}`} project={project} />
+          <GoalEditor key={`goal-${project.projectId}`} project={project} />
           <TaskSection project={project} />
-          <ChatLinkSection key={`chat-${project.projectKey}`} project={project} />
+          <ChatLinkSection key={`chat-${project.projectId}`} project={project} />
 
           {/* その他（「総合管理」F・H・J列） */}
           <div>

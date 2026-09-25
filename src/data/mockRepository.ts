@@ -12,16 +12,9 @@ const CATEGORIES = [
 ]
 const MAX_FOCUS = 3
 
-/** 開発用の簡易キー（本番は Apps Script が SHA-256 から算出） */
-function mockKey(name: string): string {
-  let h1 = 0x811c9dc5
-  let h2 = 0x01000193
-  for (const ch of name) {
-    h1 = Math.imul(h1 ^ ch.codePointAt(0)!, 16777619) >>> 0
-    h2 = Math.imul(h2 + ch.codePointAt(0)!, 2246822519) >>> 0
-  }
-  return `pk_${(h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0')).slice(0, 12)}`
-}
+/** 開発用のプロジェクトID（本番は setupV3 が「総合管理」K列に発行する） */
+const mockIds = new Map(MOCK_PROJECT_ROWS.map((row, i) => [row.name, `prj_${(i + 1).toString(16).padStart(16, '0')}`]))
+const mockId = (name: string) => mockIds.get(name) ?? ''
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -33,8 +26,10 @@ export function createMockRepository(): ProjectRepository {
   const mode = new URLSearchParams(window.location.search).get('mock')
   const projects: ProjectRow[] = MOCK_PROJECT_ROWS.map((row) => ({
     ...row,
-    projectKey: mockKey(row.name),
-    keyConflict: false,
+    projectId: mockId(row.name),
+    idConflict: false,
+    idMissing: false,
+    previousName: '',
     topCategory: MOCK_META[row.name]?.topCategory ?? '',
     focus: MOCK_META[row.name]?.focus ?? false,
     goal: MOCK_META[row.name]?.goal ?? '',
@@ -44,7 +39,7 @@ export function createMockRepository(): ProjectRepository {
   let tasks: TaskRow[] = MOCK_TASKS.map(({ projectName, ...task }) => ({
     ...task,
     taskId: newTaskId(),
-    projectKey: mockKey(projectName),
+    projectId: mockId(projectName),
   }))
 
   const state = (): ApiState => ({
@@ -52,12 +47,12 @@ export function createMockRepository(): ProjectRepository {
     projects: mode === 'empty' ? [] : projects.map((p) => ({ ...p })),
     tasks: tasks.map((t) => ({ ...t })),
     categories: CATEGORIES,
-    v3: { ready: mode !== 'v2', orphanCount: 0, maxFocus: MAX_FOCUS },
+    v3: { ready: mode !== 'v2', orphanCount: 0, missingIdCount: 0, nameChangedCount: 0, maxFocus: MAX_FOCUS },
   })
 
   const reject = (apiCode: string, message: string) => new DataError('REJECTED', message, apiCode)
   const findProject = (key: string) => {
-    const project = projects.find((p) => p.projectKey === key)
+    const project = projects.find((p) => p.projectId === key)
     if (!project) throw reject('NOT_FOUND', '案件が見つかりません。')
     return project
   }
@@ -70,10 +65,10 @@ export function createMockRepository(): ProjectRepository {
   function apply(m: Mutation) {
     switch (m.action) {
       case 'setCategory':
-        findProject(m.projectKey).topCategory = m.category
+        findProject(m.projectId).topCategory = m.category
         return
       case 'setFocus': {
-        const project = findProject(m.projectKey)
+        const project = findProject(m.projectId)
         if (m.focus && projects.filter((p) => p.focus && p !== project).length >= MAX_FOCUS) {
           throw reject('FOCUS_LIMIT', `FOCUSは最大${MAX_FOCUS}件です。どれかを外してください。`)
         }
@@ -81,13 +76,13 @@ export function createMockRepository(): ProjectRepository {
         return
       }
       case 'setGoal':
-        findProject(m.projectKey).goal = m.goal.trim()
+        findProject(m.projectId).goal = m.goal.trim()
         return
       case 'addTask': {
-        findProject(m.projectKey)
-        const own = tasks.filter((t) => t.projectKey === m.projectKey)
+        findProject(m.projectId)
+        const own = tasks.filter((t) => t.projectId === m.projectId)
         const sortOrder = own.reduce((max, t) => Math.max(max, t.sortOrder), 0) + 1
-        tasks.push({ taskId: newTaskId(), projectKey: m.projectKey, task: m.task.trim(), completed: false, sortOrder })
+        tasks.push({ taskId: newTaskId(), projectId: m.projectId, task: m.task.trim(), completed: false, sortOrder })
         return
       }
       case 'updateTask':
@@ -102,7 +97,7 @@ export function createMockRepository(): ProjectRepository {
         return
       case 'reorderTask': {
         const task = findTask(m.taskId)
-        const siblings = tasks.filter((t) => t.projectKey === task.projectKey).sort((a, b) => a.sortOrder - b.sortOrder)
+        const siblings = tasks.filter((t) => t.projectId === task.projectId).sort((a, b) => a.sortOrder - b.sortOrder)
         const index = siblings.indexOf(task)
         const target = m.direction === 'up' ? index - 1 : index + 1
         if (target < 0 || target >= siblings.length) return
@@ -111,8 +106,10 @@ export function createMockRepository(): ProjectRepository {
         siblings.forEach((t, i) => (t.sortOrder = i + 1))
         return
       }
+      case 'assignProjectIds':
+        return
       case 'setChatUrl': {
-        const project = findProject(m.projectKey)
+        const project = findProject(m.projectId)
         if (project.chatUrl !== m.expectedUrl) throw reject('CONFLICT', 'チャットURLは別の場所で変更されています。')
         if (!m.url.trim() && !m.clear) throw reject('INVALID_INPUT', 'URLが空です。')
         project.chatUrl = m.url.trim()

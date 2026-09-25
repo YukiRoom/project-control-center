@@ -20,6 +20,8 @@ export interface Commands {
   moveTask: (task: Task, direction: 'up' | 'down') => void
   setChatUrl: (project: Project, url: string) => Promise<boolean>
   clearChatUrl: (project: Project) => Promise<boolean>
+  /** K列が空の案件にプロジェクトIDを発行する */
+  assignProjectIds: () => Promise<boolean>
 }
 
 export const CommandsContext = createContext<Commands | null>(null)

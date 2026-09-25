@@ -21,8 +21,10 @@ export function toProject(row: ProjectRow, tasks: Task[] = []): Project {
   const updatedAt = text(row.updatedAt)
   return {
     rowNumber: row.rowNumber,
-    projectKey: text(row.projectKey),
-    keyConflict: row.keyConflict === true,
+    projectId: text(row.projectId),
+    idConflict: row.idConflict === true,
+    idMissing: row.idMissing === true,
+    previousName: text(row.previousName),
     category: text(row.category),
     name: text(row.name),
     statusLabel,

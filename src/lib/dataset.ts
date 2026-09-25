@@ -6,7 +6,7 @@ export interface ApiState {
   projects: ProjectRow[]
   tasks?: TaskRow[]
   categories?: ProjectDataset['categories']
-  v3?: { ready: boolean; orphanCount: number; maxFocus: number }
+  v3?: { ready: boolean; orphanCount: number; missingIdCount?: number; nameChangedCount?: number; maxFocus: number }
 }
 
 const DEFAULT_MAX_FOCUS = 3
@@ -17,21 +17,23 @@ export function toDataset(state: ApiState): ProjectDataset {
   for (const row of state.tasks ?? []) {
     const task: Task = {
       taskId: String(row.taskId),
-      projectKey: String(row.projectKey),
+      projectId: String(row.projectId),
       title: String(row.task ?? ''),
       completed: row.completed === true,
       sortOrder: Number(row.sortOrder) || 0,
     }
-    const list = tasksByProject.get(task.projectKey) ?? []
+    const list = tasksByProject.get(task.projectId) ?? []
     list.push(task)
-    tasksByProject.set(task.projectKey, list)
+    tasksByProject.set(task.projectId, list)
   }
   const isV3 = (state.apiVersion ?? 1) >= 3
   return {
-    projects: state.projects.map((row) => toProject(row, row.projectKey ? tasksByProject.get(row.projectKey) : [])),
+    projects: state.projects.map((row) => toProject(row, row.projectId ? tasksByProject.get(row.projectId) : [])),
     categories: isV3 ? (state.categories ?? []) : [],
     v3Ready: isV3 && state.v3?.ready === true,
     orphanCount: state.v3?.orphanCount ?? 0,
+    missingIdCount: state.v3?.missingIdCount ?? 0,
+    nameChangedCount: state.v3?.nameChangedCount ?? 0,
     maxFocus: state.v3?.maxFocus ?? DEFAULT_MAX_FOCUS,
   }
 }
@@ -43,28 +45,29 @@ let tempId = 0
  * 応答が返ったらサーバーの最新データで置き換え、失敗したら元に戻す。
  */
 export function applyMutation(dataset: ProjectDataset, m: Mutation): ProjectDataset {
+  if (m.action === 'assignProjectIds') return dataset
   const projects = dataset.projects.map((project) => {
     const tasks = project.tasks
     switch (m.action) {
       case 'setCategory':
-        return project.projectKey === m.projectKey ? { ...project, topCategory: m.category } : project
+        return project.projectId === m.projectId ? { ...project, topCategory: m.category } : project
       case 'setFocus':
-        return project.projectKey === m.projectKey ? { ...project, focus: m.focus } : project
+        return project.projectId === m.projectId ? { ...project, focus: m.focus } : project
       case 'setGoal':
-        return project.projectKey === m.projectKey ? { ...project, goal: m.goal.trim() } : project
+        return project.projectId === m.projectId ? { ...project, goal: m.goal.trim() } : project
       case 'setChatUrl':
-        return project.projectKey === m.projectKey
+        return project.projectId === m.projectId
           ? { ...project, chatUrl: m.url.trim(), chatUrlRaw: m.url.trim() }
           : project
       case 'addTask': {
-        if (project.projectKey !== m.projectKey) return project
+        if (project.projectId !== m.projectId) return project
         const sortOrder = tasks.reduce((max, t) => Math.max(max, t.sortOrder), 0) + 1
         tempId += 1
         return {
           ...project,
           tasks: [
             ...tasks,
-            { taskId: `pending_${tempId}`, projectKey: project.projectKey, title: m.task.trim(), completed: false, sortOrder },
+            { taskId: `pending_${tempId}`, projectId: project.projectId, title: m.task.trim(), completed: false, sortOrder },
           ],
         }
       }

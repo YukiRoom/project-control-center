@@ -81,10 +81,30 @@ export function Dashboard({ dataset, mutate, notify }: DashboardProps) {
 
         <OverviewBar summary={summary} filters={filters} onSelectStatus={selectStatus} onToggleStale={toggleStale} />
 
-        {dataset.orphanCount > 0 && (
-          <p className="rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">
-            「総合管理」と紐付かない管理データが {dataset.orphanCount} 件あります（案件名を変更した場合など）。README の「projectKey」を参照してください。
-          </p>
+        {(dataset.missingIdCount > 0 || dataset.nameChangedCount > 1 || dataset.orphanCount > 0) && (
+          <ul className="space-y-1 rounded-lg bg-slate-100 px-3 py-2 text-xs leading-relaxed text-slate-600">
+            {dataset.missingIdCount > 0 && (
+              <li className="flex flex-wrap items-center gap-x-2">
+                プロジェクトIDが未発行の案件が {dataset.missingIdCount} 件あります。
+                <button
+                  type="button"
+                  onClick={() => void commands.assignProjectIds()}
+                  className="font-semibold text-navy-700 underline underline-offset-2 hover:text-navy-900"
+                >
+                  まとめて発行
+                </button>
+              </li>
+            )}
+            {dataset.nameChangedCount > 1 && (
+              <li>
+                前回と案件名が違う案件が {dataset.nameChangedCount} 件あります。名称変更なら問題ありません。
+                「総合管理」を A〜J 列だけで並べ替えた場合は K列（プロジェクトID）がずれている可能性があります。
+              </li>
+            )}
+            {dataset.orphanCount > 0 && (
+              <li>「総合管理」から削除された案件の管理データが {dataset.orphanCount} 件残っています（削除はしていません）。</li>
+            )}
+          </ul>
         )}
 
         <div className="space-y-3">
