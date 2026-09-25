@@ -3,6 +3,9 @@ import type { ProjectRow } from '../types/project'
 import { loadAccessKey } from './accessKey'
 import { DataError, type ProjectRepository } from './repository'
 
+/** Apps Script が応答しない場合にローディングのまま止まらないようにする */
+const REQUEST_TIMEOUT_MS = 25_000
+
 interface ApiSuccess {
   ok: true
   sheet: string
@@ -31,6 +34,7 @@ export function createGasRepository(apiUrl: string): ProjectRepository {
   return {
     sourceLabel: 'Google Sheets',
     async listProjects(signal) {
+      const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
       let response: Response
       try {
         response = await fetch(apiUrl, {
@@ -38,10 +42,11 @@ export function createGasRepository(apiUrl: string): ProjectRepository {
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({ action: 'list', key: loadAccessKey() }),
           redirect: 'follow',
-          signal,
+          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
         })
       } catch (error) {
         if (signal?.aborted) throw error
+        if (timeout.aborted) throw new DataError('NETWORK', 'Google Sheets からの応答がありませんでした（タイムアウト）。')
         throw new DataError('NETWORK', 'ネットワークに接続できませんでした。')
       }
 
